@@ -1,6 +1,7 @@
 {
   "name": "universal-agent-his-demo",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",

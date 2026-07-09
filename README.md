@@ -272,4 +272,6 @@ If you use this demo package, cite the associated EMNLP demo paper when availabl
 
 ## License
 
-Add the project license before public artifact release if one is not already present in the repository.
+HIS-Agent is released under the Apache License 2.0. See [LICENSE](LICENSE).
+
+The license applies to the demo code, synthetic data, documentation, and evaluation scripts in this repository unless otherwise noted. API keys, model credentials, third-party model weights, third-party dependencies, and real patient data are not included in the repository and remain subject to their own terms.
