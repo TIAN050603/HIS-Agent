@@ -1,315 +1,273 @@
-# GUI Agent Patient Editor Test
+# HIS-Agent
 
-This repository contains a single-page patient information editor for GUI/Web Agent research.
-The frontend is a static `index.html` page. The current main agent path is **Universal Observe-Act Agent**.
+**HIS-Agent** is an installable research demo for real-time clinical workflow assistance. It turns doctor-patient voice conversations into role-aware transcripts and editable Hospital Information System (HIS) tasks by combining streaming ASR, Diart speaker diarization, and LLM-based semantic role correction.
 
-Public frontend URL:
+[Installable Package](#quick-start) | [Reviewer Demo Guide](docs/DEMO.md) | [Evaluation Plan](docs/EVALUATION.md) | [Reports](docs/reports) | [License](#license)
 
-```text
-https://tian050603.github.io/gui-agent-patient-editor-test/
+## Overview
+
+HIS-Agent demonstrates an end-to-end voice-to-action workflow for outpatient HIS scenarios:
+
+1. A doctor and a patient speak naturally during a simulated visit.
+2. The ASR service streams partial and final utterance turns.
+3. The Diart service separates anonymous speakers using speaker diarization.
+4. The frontend assigns turns to speakers by time overlap.
+5. The LLM semantic role mapper corrects anonymous speakers into `Doctor` and `Patient`.
+6. When the visit ends, the agent drafts an editable HIS task for clinician confirmation.
+7. The confirmed task is executed through allowlisted browser actions.
+
+The demo is designed for research evaluation only. It is not a clinical decision support system and must not be used with real patient data.
+
+## Why This Demo
+
+Clinical voice interfaces often fail at the boundary between diarization and workflow execution: ASR gives text, diarization gives anonymous speakers, but the HIS agent needs clinically meaningful roles. HIS-Agent focuses on this missing step.
+
+The key demo contribution is **semantic role correction**:
+
+- Diart separates `speaker_0`, `speaker_1`, and later speaker segments.
+- Time-overlap logic attaches diarization segments to ASR turns.
+- The LLM maps speakers to `Doctor` or `Patient` using dialogue semantics.
+- A first-round correction trigger runs as soon as both doctor/patient roles appear.
+- Later correction still uses stricter steady-state thresholds to avoid role flip noise.
+
+## System Architecture
+
+```mermaid
+flowchart LR
+  Mic["Browser microphone"] --> ASR["ASR service<br/>WebSocket turns"]
+  Mic --> Diart["Diart diarization service<br/>speaker segments"]
+  ASR --> Voice["Voice input controller<br/>turn timeline"]
+  Diart --> Voice
+  Voice --> Role["LLM semantic role mapping<br/>Doctor / Patient"]
+  Role --> Review["Editable visit transcript"]
+  Review --> Task["LLM task drafting"]
+  Task --> Confirm["Clinician confirmation"]
+  Confirm --> HIS["Allowlisted HIS page actions"]
 ```
 
-## Current Architecture
+## Key Features
+
+- Multi-page HIS shell: login, dashboard, patient management, patient editor, and agent history.
+- Shared floating HIS-Agent widget available across HIS pages.
+- Real-time ASR turn capture with final/interim transcript states.
+- Diart-based local speaker diarization with speaker segment metadata.
+- Time-overlap speaker assignment from diarization segments to ASR turns.
+- LLM semantic role correction from anonymous speakers to doctor/patient roles.
+- Editable transcript review before task drafting.
+- Confirm-before-execute task workflow with allowlisted page actions.
+- Evaluation scripts for role mapping, voice task equivalence, E2E behavior, and performance baselines.
+
+## Repository Layout
 
 ```text
-Static frontend page
-  -> browser collects a structured pageState from the current page
-  -> local FastAPI backend calls Qwen for the next observe-act action
-  -> frontend applies that action to the current page DOM
-  -> loop continues until the task is saved, finished, or needs user clarification
+html/                         Static HIS pages
+shared/                       Frontend agent, voice, role mapping, and task orchestration
+backend/                      FastAPI backend for LLM planning and HIS actions
+asr_service/                  Streaming ASR WebSocket service
+diarization_service/          Diart speaker diarization service
+loop-engineering/             Evaluation and regression harnesses
+tests/                        Playwright and voice-case test assets
+docs/                         Reviewer demo guide, evaluation plan, and reports
+scripts/                      Utility scripts for local serving and checks
 ```
 
-Optional voice input:
+## Quick Start
+
+The repository itself is the installable demo package. The commands below run the components locally. Use separate terminals for the frontend, backend, ASR service, and diarization service.
+
+### 1. Clone
+
+```bash
+git clone https://github.com/TIAN050603/universal_agent_english.git his-agent
+cd his-agent
+```
+
+### 2. Frontend
+
+```bash
+python3 -m http.server 5500
+```
+
+Open:
 
 ```text
-Browser microphone
-  -> local asr_service WebSocket
-  -> Qwen ASR realtime API
-  -> transcript is filled into the task textarea
-  -> user clicks Send Task
-  -> Universal Observe-Act Agent runs on the text command
+http://127.0.0.1:5500/html/login.html
 ```
 
-The ASR service only converts speech to text. It never executes a task automatically.
-
-## Important Notes
-
-- GitHub Pages only serves the static frontend. It cannot run Python services.
-- To use the agent, start the local `backend` service.
-- To use voice input, also start the local `asr_service` service.
-- Real API keys must stay in local `.env` files and must not be committed.
-- The backup folder `_backup_before_perf_optimization_20260604/` is local-only and ignored by Git.
-- The current UI main mode is Universal Observe-Act Agent. Browser Use / Smoke Test code is no longer the main path.
-
-## Project Layout
+Evaluation credentials:
 
 ```text
-index.html
-start_lan_services.ps1
-backend/
-  main.py
-  pyproject.toml
-  .env.example
-asr_service/
-  app/
-  requirements.txt
-  .env.example
-  README.md
-voice_client/
-  voice_asr_client.js
-  voice_asr.css
-Universal Observe-Act Agent technical report/
-README.md
+Account: 123
+Password: 123
 ```
 
-Technical report:
+### 3. Backend
 
-[Universal Observe-Act Agent technical report](Universal%20Observe-Act%20Agent%E6%8A%80%E6%9C%AF%E6%8A%A5%E5%91%8A/UNIVERSAL_OBSERVE_ACT_AGENT_REPORT.md)
-
-## 1. Backend Setup
-
-```powershell
+```bash
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
+cp .env.example .env
 ```
 
-Copy the environment template:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-For DashScope / Qwen compatible API:
+Configure an OpenAI-compatible LLM in `backend/.env`:
 
 ```env
-LLM_PROVIDER=qwen
-DASHSCOPE_API_KEY=your_real_key
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_MODEL=qwen-plus
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-4o
+OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-For a self-hosted OpenAI-compatible Qwen service:
+Start the backend:
 
-```env
-LLM_PROVIDER=qwen
-DASHSCOPE_API_KEY=EMPTY
-DASHSCOPE_BASE_URL=http://your-qwen-host:8001/v1
-DASHSCOPE_MODEL=qwen3-14b
-```
-
-Start backend for local-only use:
-
-```powershell
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --log-level debug
-```
-
-Start backend for LAN access:
-
-```powershell
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --log-level debug
+```bash
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --log-level info
 ```
 
 Health checks:
 
-```powershell
+```bash
 curl http://127.0.0.1:8000/api/health
-curl http://127.0.0.1:8000/api/qwen/test
+curl http://127.0.0.1:8000/api/llm/test
 ```
 
-## 2. Frontend
+### 4. ASR Service
 
-Use GitHub Pages:
-
-```text
-https://tian050603.github.io/gui-agent-patient-editor-test/
-```
-
-Or serve the local file for LAN testing:
-
-```powershell
-python -m http.server 8080 --bind 0.0.0.0
-```
-
-Then open:
-
-```text
-http://YOUR_IPV4_ADDRESS:8080
-```
-
-Example:
-
-```text
-http://10.31.97.44:8080
-```
-
-In the page, set backend URL to:
-
-```text
-http://127.0.0.1:8000
-```
-
-or, for other devices on the same LAN:
-
-```text
-http://YOUR_IPV4_ADDRESS:8000
-```
-
-## 3. One-Command LAN Startup on Windows
-
-A helper script is included for local LAN demos:
-
-```powershell
-.\start_lan_services.ps1
-```
-
-It starts:
-
-- frontend at `http://YOUR_IPV4_ADDRESS:8080`
-- backend at `http://YOUR_IPV4_ADDRESS:8000`
-- ASR service at `http://YOUR_IPV4_ADDRESS:8010`
-
-## 4. ASR Service Setup
-
-```powershell
+```bash
 cd asr_service
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Copy the environment template:
+Configure `asr_service/.env` with the ASR provider credentials used in your environment. Then start:
 
-```powershell
-Copy-Item .env.example .env
-```
-
-Edit `asr_service/.env`:
-
-```env
-QWEN_ASR_API_KEY=your_real_key
-QWEN_ASR_REALTIME_URL=wss://dashscope.aliyuncs.com/api-ws/v1/realtime
-QWEN_ASR_MODEL=qwen3-asr-flash-realtime
-ASR_SAMPLE_RATE=16000
-QWEN_ASR_LANGUAGE=zh
-```
-
-Start ASR service for local-only use:
-
-```powershell
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level debug
-```
-
-Start ASR service for LAN access:
-
-```powershell
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8010 --log-level debug
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --log-level info
 ```
 
 Health check:
 
-```powershell
+```bash
 curl http://127.0.0.1:8010/health
 ```
 
-## 5. Browser Microphone Note
+### 5. Diart Speaker Diarization
 
-Browsers only expose `getUserMedia` on secure origins.
+Diart depends on PyTorch, torchaudio, and pyannote models. Install torch/torchaudio for your CPU or CUDA environment first, then:
 
-Usually OK:
-
-- `http://localhost:8080`
-- `http://127.0.0.1:8080`
-
-For LAN HTTP pages such as `http://10.31.97.44:8080`, Chrome/Edge may block microphone access.
-Use HTTPS or add the LAN origin in:
-
-```text
-chrome://flags/#unsafely-treat-insecure-origin-as-secure
+```bash
+cd diarization_service
+python3 -m venv .venv-diart
+source .venv-diart/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Then restart the browser.
+If your Diart/pyannote setup requires Hugging Face access, put the token in `diarization_service/.env`; do not commit it.
 
-## 6. Universal Observe-Act Agent Flow
-
-1. Open the frontend.
-2. Keep mode as `Universal Observe-Act Agent`.
-3. Set backend URL.
-4. Optional: click backend health check.
-5. Type a task or use voice input to fill the textarea.
-6. Click Send Task.
-7. The chat area shows each round's thought, elapsed time, and token usage.
-8. A green final message is shown when the task finishes.
-
-The current maximum observe-act rounds is `20`.
-
-## 7. Test Tasks
-
-```text
-请选择 P001 张伟，将手机号修改为 13912345678，然后点击保存。
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8020 --log-level info
 ```
 
-```text
-请选择 P002 李娜，将就诊科室修改为 消化内科，然后点击保存。
+Health check:
+
+```bash
+curl http://127.0.0.1:8020/diarization/health
 ```
 
-```text
-请选择 P003 王强，将就诊类型修改为 复诊，然后点击保存。
+## Demo Walkthrough
+
+See [docs/DEMO.md](docs/DEMO.md) for a reviewer-oriented 5-minute path. A typical voice demo is:
+
+1. Open `html/login.html` and log in with `123 / 123`.
+2. Open the floating HIS-Agent widget.
+3. Start a visit-session voice task.
+4. Let two speakers play doctor and patient.
+5. Stop recording and review the role-corrected transcript.
+6. Let HIS-Agent draft a task, edit if needed, and confirm execution.
+7. Verify the patient record update in the HIS page.
+
+## Evaluation
+
+The semantic correction evaluation is described in [docs/EVALUATION.md](docs/EVALUATION.md). The core metrics are:
+
+- Role Attribution Accuracy
+- Character-weighted Role Accuracy
+- Correction Gain over Diart-only assignment
+- Wrong Override Rate
+- Correction Latency in final turns and seconds
+- Task Draft Accuracy after visit-session summarization
+- Manual Edit Count during transcript review
+
+Relevant commands:
+
+```bash
+npm install
+npm run loop:voice-role
+npm run loop:voice-task-equivalence
+npm run test:e2e
 ```
 
-```text
-请选择 P004 陈敏，将就诊科室修改为 呼吸内科，将就诊类型修改为 复诊，将主诉/症状描述修改为 咳嗽、胸闷两天，然后点击保存。
-```
+## Configuration Notes
 
-```text
-请选择 P005 赵磊，将手机号修改为 123，然后点击保存，观察页面是否提示手机号格式错误。
-```
+- Real API keys must stay in local `.env` files.
+- The backend supports OpenAI-compatible chat completion APIs.
+- The ASR service currently uses an external realtime ASR provider configured through `asr_service/.env`.
+- The Diart service is optional for text-only task execution but required for the full role-correction voice demo.
+- Browsers require a secure origin for microphone access. `localhost` and `127.0.0.1` are usually accepted.
 
-Voice tolerance example:
+## Troubleshooting
 
-```text
-选择批零零三王墙，把就诊类型改成付诊，然后保存。
-```
+Backend unavailable:
 
-## 8. Troubleshooting
-
-### Backend connection failed
-
-Check backend:
-
-```powershell
+```bash
 curl http://127.0.0.1:8000/api/health
 ```
 
-If another device is using the frontend, use the host machine IPv4 address instead of `127.0.0.1`.
+LLM unavailable:
 
-### Qwen call failed
-
-Check `.env` values and run:
-
-```powershell
-curl http://127.0.0.1:8000/api/qwen/test
+```bash
+curl http://127.0.0.1:8000/api/llm/test
 ```
 
-If using a self-hosted Qwen service, make sure `DASHSCOPE_BASE_URL` is reachable from the backend machine.
+ASR unavailable:
 
-### ASR cannot start
-
-Check ASR service:
-
-```powershell
+```bash
 curl http://127.0.0.1:8010/health
 ```
 
-If the browser says microphone is unavailable, see the secure-origin note above.
+Diarization unavailable:
 
-### Port already in use
-
-Find the process:
-
-```powershell
-netstat -ano | findstr ":8000 :8010 :8080"
+```bash
+curl http://127.0.0.1:8020/diarization/health
 ```
 
-Stop only the matching service process, then restart the service.
+Frontend cannot access the microphone:
+
+- Use `http://localhost:5500` or `http://127.0.0.1:5500`.
+- For LAN demos, use HTTPS or configure the browser secure-origin allowlist for the review machine.
+
+## Privacy and Ethics
+
+HIS-Agent is a research demo for simulated clinical workflow assistance. It ships with synthetic evaluation patients and should not process real protected health information. The system drafts and executes only allowlisted browser actions, and the voice-to-task output is designed to be reviewed before execution.
+
+## Citation
+
+If you use this demo package, cite the associated EMNLP demo paper when available. Until the paper metadata is public, cite the repository:
+
+```bibtex
+@misc{hisagent2026,
+  title = {HIS-Agent: Real-Time Voice-to-Action Clinical Workflow Assistance},
+  author = {HIS-Agent Authors},
+  year = {2026},
+  url = {https://github.com/TIAN050603/universal_agent_english}
+}
+```
+
+## License
+
+Add the project license before public artifact release if one is not already present in the repository.
