@@ -133,26 +133,29 @@ async def receive_qwen_events(websocket: WebSocket, qwen_ws, session: StreamingS
             text = merge_transcript(session.final_text, current)
             if text:
                 session.last_text = text
-                await send_transcript(websocket, "partial", text, session)
+                await send_transcript(websocket, "partial", text, session, build_partial_turn(session, current))
             continue
 
         if event_type == "conversation.item.input_audio_transcription.completed":
             transcript = event.get("transcript") or ""
             if transcript:
+                append_final_turn(session, transcript)
                 session.final_text = merge_transcript(session.final_text, transcript)
                 session.last_text = session.final_text
-                await send_transcript(websocket, "partial", session.final_text, session)
+                await send_transcript(websocket, "final", session.final_text, session, session.turns)
             continue
 
         if event_type == "session.finished":
             if not session.final_sent:
-                await send_transcript(websocket, "final", session.final_text or session.last_text, session)
+                if not session.turns and (session.final_text or session.last_text):
+                    append_final_turn(session, session.final_text or session.last_text)
+                await send_transcript(websocket, "final", session.final_text or session.last_text, session, session.turns)
                 session.final_sent = True
             return
 
 
-async def send_transcript(websocket: WebSocket, message_type: str, raw_text: str, session: StreamingSession) -> None:
-    turns = build_structured_turns(session, raw_text, message_type == "final")
+async def send_transcript(websocket: WebSocket, message_type: str, raw_text: str, session: StreamingSession, turns: list[dict] | None = None) -> None:
+    structured_turns = turns if turns is not None else build_structured_turns(session, raw_text, message_type == "final")
     await safe_send_json(
         websocket,
         {
@@ -160,7 +163,7 @@ async def send_transcript(websocket: WebSocket, message_type: str, raw_text: str
             "session_id": session.session_id,
             "rawText": raw_text,
             "normalizedText": normalize_transcript(raw_text),
-            "turns": turns,
+            "turns": structured_turns,
             "diarization": {
                 "supported": False,
                 "mode": "text_only_default_role",
@@ -171,6 +174,13 @@ async def send_transcript(websocket: WebSocket, message_type: str, raw_text: str
 
 
 def build_structured_turns(session: StreamingSession, raw_text: str, is_final: bool) -> list[dict]:
+    if is_final:
+        if session.turns:
+            return session.turns
+        append_final_turn(session, raw_text)
+        return session.turns
+    return build_partial_turn(session, raw_text)
+
     normalized = normalize_transcript(raw_text)
     elapsed_ms = max(0, int((time.monotonic() - session.started_at) * 1000))
     # 当前 demo 固定为医生/患者两人角色，后续可能修改为更多说话人或自定义角色。
@@ -194,6 +204,55 @@ def build_structured_turns(session: StreamingSession, raw_text: str, is_final: b
         else:
             session.turns.append(turn)
     return session.turns
+
+
+def build_partial_turn(session: StreamingSession, raw_text: str) -> list[dict]:
+    normalized = normalize_transcript(raw_text)
+    if not normalized:
+        return session.turns
+    end_ms = max(session.last_final_end_ms, elapsed_ms(session))
+    return session.turns + [
+        {
+            "turn_id": f"{session.session_id}_partial",
+            "raw_speaker_id": "speaker_0",
+            "role": "doctor",
+            "role_label": "Doctor",
+            "text": normalized,
+            "start_ms": session.last_final_end_ms,
+            "end_ms": end_ms,
+            "is_final": False,
+            "confidence": None,
+            "source": "asr_text_only_default_role",
+        }
+    ]
+
+
+def append_final_turn(session: StreamingSession, raw_text: str) -> None:
+    normalized = normalize_transcript(raw_text)
+    if not normalized:
+        return
+    session.turn_counter += 1
+    start_ms = session.last_final_end_ms
+    end_ms = max(start_ms + 1, elapsed_ms(session))
+    session.last_final_end_ms = end_ms
+    session.turns.append(
+        {
+            "turn_id": f"{session.session_id}_turn_{session.turn_counter}",
+            "raw_speaker_id": "speaker_0",
+            "role": "doctor",
+            "role_label": "Doctor",
+            "text": normalized,
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "is_final": True,
+            "confidence": None,
+            "source": "asr_text_only_default_role",
+        }
+    )
+
+
+def elapsed_ms(session: StreamingSession) -> int:
+    return max(0, int((time.monotonic() - session.started_at) * 1000))
 
 
 async def safe_send_json(websocket: WebSocket, payload: dict) -> None:

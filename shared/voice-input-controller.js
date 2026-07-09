@@ -7,6 +7,7 @@
   const DEFAULT_ASR_URL = SERVICE_URLS.asrUrl || "";
   const DEFAULT_DIARIZATION_URL = SERVICE_URLS.diarizationUrl || SERVICE_URLS.backendUrl || "";
   const MICROPHONE_POLICY_KEY = "his_voice_microphone_policy";
+  const MAX_NEAREST_DIARIZATION_GAP_MS = 1800;
   const listeners = new Set();
 
   const state = {
@@ -52,7 +53,8 @@
     sessionId: "voice_" + Date.now().toString(36),
     turnCounter: 0,
     partialTurnId: "",
-    finalTurnSignatures: []
+    finalTurnSignatures: [],
+    activeSettings: null
   };
 
   function subscribe(callback) {
@@ -241,6 +243,7 @@
 
   async function start(options) {
     const settings = options || {};
+    runtime.activeSettings = settings;
     const useDiarization = settings.enableDiarization !== false && settings.mode !== "dictation";
     runtime.sessionId = "voice_" + Date.now().toString(36);
     runtime.turnCounter = 0;
@@ -395,6 +398,7 @@
     runtime.audioContext = null;
     runtime.websocket = null;
     runtime.diarizationWebSocket = null;
+    runtime.activeSettings = null;
     if (websocket && websocket.readyState !== WebSocket.CLOSED) websocket.close();
     if (diarizationWebSocket && diarizationWebSocket.readyState !== WebSocket.CLOSED) diarizationWebSocket.close();
     emit({ audioContextState: runtime.audioContext ? runtime.audioContext.state : "closed", streamTrackCount: 0, diarizationWebSocketStatus: "idle" });
@@ -485,12 +489,20 @@
       emit({ diarizationWebSocketStatus: "idle" });
       return;
     }
+    if (data.type === "speaker_segments" && Array.isArray(data.segments)) {
+      appendDiarizationSegments(data.segments.map(normalizeDiarizationSegment), data.status);
+      return;
+    }
     if (data.type !== "speaker_segment") return;
+    appendDiarizationSegments([normalizeDiarizationSegment(data)], data.status);
+  }
+
+  function normalizeDiarizationSegment(data) {
     const rawSpeakerId = data.speaker_id || data.raw_speaker_id || "";
     const speakerId = normalizeSpeakerId(rawSpeakerId);
     const source = data.source || state.diarizationProvider || "manual";
     const automatic = Boolean(data.automatic);
-    const segment = {
+    return {
       session_id: data.session_id || runtime.sessionId,
       raw_speaker_id: rawSpeakerId || null,
       speaker_id: speakerId,
@@ -503,17 +515,46 @@
       automatic: automatic,
       automatic_diarization: automatic && source === "diart_local"
     };
-    emit({
-      diarizationSegments: state.diarizationSegments.concat([segment]).slice(-80),
-      diarizationProvider: segment.source || state.diarizationProvider,
-      diarizationStatus: data.status || state.diarizationStatus || "connected"
-    });
   }
 
-  function applyDiarizationSegments(turns) {
-    const segment = state.diarizationSegments.length ? state.diarizationSegments[state.diarizationSegments.length - 1] : null;
-    if (!segment) return turns;
+  function appendDiarizationSegments(segments, status) {
+    const incoming = (Array.isArray(segments) ? segments : []).filter(function (segment) {
+      return segment && segment.speaker_id && segment.end_ms > segment.start_ms;
+    });
+    if (!incoming.length) return;
+    const next = state.diarizationSegments.slice();
+    incoming.forEach(function (segment) {
+      const duplicate = next.some(function (item) {
+        return item.speaker_id === segment.speaker_id
+          && item.start_ms === segment.start_ms
+          && item.end_ms === segment.end_ms
+          && item.source === segment.source;
+      });
+      if (!duplicate) next.push(segment);
+    });
+    const keptSegments = next.slice(-160);
+    const updatedTurns = state.turns.length ? applyDiarizationSegments(state.turns, keptSegments) : state.turns;
+    const didUpdateTurns = didDiarizationUpdateTurns(state.turns, updatedTurns);
+    emit({
+      diarizationSegments: keptSegments,
+      turns: didUpdateTurns ? updatedTurns : state.turns,
+      diarizationProvider: incoming[incoming.length - 1].source || state.diarizationProvider,
+      diarizationStatus: status || state.diarizationStatus || "connected"
+    });
+    if (didUpdateTurns && runtime.activeSettings && runtime.activeSettings.onTurns) {
+      runtime.activeSettings.onTurns(updatedTurns, { type: "diarization_update" }, getState());
+    }
+  }
+
+  function applyDiarizationSegments(turns, availableSegments) {
+    const segments = (availableSegments || state.diarizationSegments).filter(function (segment) {
+      return segment && segment.speaker_id && segment.end_ms > segment.start_ms;
+    });
+    if (!segments.length) return turns;
     return turns.map(function (turn) {
+      const match = findBestDiarizationMatch(turn, segments);
+      if (!match) return turn;
+      const segment = match.segment;
       const rawSpeakerId = segment.raw_speaker_id || segment.speaker_id || turn.raw_speaker_id || turn.speaker_id || "";
       const speakerId = normalizeSpeakerId(rawSpeakerId);
       const mapped = roleFromSpeakerId(speakerId);
@@ -526,7 +567,7 @@
         speaker_id: speakerId,
         role: preserveManualRole ? turn.role : mapped.role,
         role_label: preserveManualRole ? turn.role_label : mapped.role_label,
-        role_source: preserveManualRole ? existingRoleSource : (speakerId ? "diarization_default_mapping" : "unknown_speaker"),
+        role_source: preserveManualRole ? existingRoleSource : (speakerId ? "diarization_" + match.mode + "_mapping" : "unknown_speaker"),
         confidence: segment.confidence,
         source: automatic && source === "diart_local" ? "diart_local" : source,
         diarization_source: source,
@@ -534,9 +575,100 @@
         automatic_diarization: automatic && source === "diart_local",
         diarization_start_ms: segment.start_ms,
         diarization_end_ms: segment.end_ms,
-        diarization_confidence: segment.confidence === undefined ? null : segment.confidence
+        diarization_confidence: segment.confidence === undefined ? null : segment.confidence,
+        diarization_match_mode: match.mode,
+        diarization_overlap_ms: match.overlapMs
       });
     });
+  }
+
+  function didDiarizationUpdateTurns(previous, next) {
+    if (!Array.isArray(previous) || !Array.isArray(next) || previous.length !== next.length) return true;
+    return next.some(function (turn, index) {
+      const before = previous[index] || {};
+      return before.speaker_id !== turn.speaker_id
+        || before.role !== turn.role
+        || before.role_source !== turn.role_source
+        || before.diarization_start_ms !== turn.diarization_start_ms
+        || before.diarization_end_ms !== turn.diarization_end_ms
+        || before.diarization_match_mode !== turn.diarization_match_mode;
+    });
+  }
+
+  function findBestDiarizationMatch(turn, segments) {
+    const turnStart = finiteNumberOrNull(turn.start_ms);
+    const turnEnd = finiteNumberOrNull(turn.end_ms);
+    const hasTurnInterval = turnStart !== null && turnEnd !== null && turnEnd > turnStart;
+    if (!hasTurnInterval) {
+      const latest = latestDiarizationSegment(segments);
+      return latest ? { segment: latest, mode: "latest_fallback", overlapMs: 0 } : null;
+    }
+
+    const scores = {};
+    segments.forEach(function (segment) {
+      const overlap = intervalOverlapMs(turnStart, turnEnd, segment.start_ms, segment.end_ms);
+      if (overlap <= 0) return;
+      const key = segment.speaker_id;
+      const entry = scores[key] || { score: 0, segment: segment, segmentScore: 0 };
+      entry.score += overlap;
+      if (overlap > entry.segmentScore) {
+        entry.segment = segment;
+        entry.segmentScore = overlap;
+      }
+      scores[key] = entry;
+    });
+
+    let best = null;
+    Object.keys(scores).forEach(function (speakerId) {
+      const entry = scores[speakerId];
+      if (!best || entry.score > best.score) {
+        best = entry;
+      }
+    });
+    if (best && best.score > 0) {
+      return { segment: best.segment, mode: "overlap", overlapMs: Math.round(best.score) };
+    }
+
+    const nearest = nearestDiarizationSegment(turnStart, turnEnd, segments);
+    if (nearest && nearest.gapMs <= MAX_NEAREST_DIARIZATION_GAP_MS) {
+      return { segment: nearest.segment, mode: "nearest", overlapMs: 0 };
+    }
+    return null;
+  }
+
+  function intervalOverlapMs(startA, endA, startB, endB) {
+    const left = Math.max(Number(startA || 0), Number(startB || 0));
+    const right = Math.min(Number(endA || 0), Number(endB || 0));
+    return Math.max(0, right - left);
+  }
+
+  function nearestDiarizationSegment(turnStart, turnEnd, segments) {
+    let best = null;
+    segments.forEach(function (segment) {
+      const gapMs = intervalGapMs(turnStart, turnEnd, segment.start_ms, segment.end_ms);
+      if (!best || gapMs < best.gapMs) {
+        best = { segment: segment, gapMs: gapMs };
+      }
+    });
+    return best;
+  }
+
+  function latestDiarizationSegment(segments) {
+    return segments.reduce(function (latest, segment) {
+      if (!latest) return segment;
+      return Number(segment.end_ms || 0) >= Number(latest.end_ms || 0) ? segment : latest;
+    }, null);
+  }
+
+  function intervalGapMs(startA, endA, startB, endB) {
+    if (endB < startA) return startA - endB;
+    if (startB > endA) return startB - endA;
+    return 0;
+  }
+
+  function finiteNumberOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
   }
 
   function mergeTurns(existing, incoming, isFinal) {
@@ -598,6 +730,8 @@
       role: role,
       role_label: data.role_label || roleLabelForRole(role),
       text: text || "",
+      start_ms: Number(data.start_ms || 0),
+      end_ms: Number(data.end_ms || 0),
       is_final: data.type === "final",
       source: data.source || "asr_text_only_default_role",
       role_source: speakerId ? "asr_default_mapping" : "manual_fallback",
@@ -631,7 +765,9 @@
       automatic_diarization: automatic && (diarizationSource === "diart_local" || turn.source === "diart_local"),
       diarization_start_ms: turn.diarization_start_ms === undefined ? null : Number(turn.diarization_start_ms),
       diarization_end_ms: turn.diarization_end_ms === undefined ? null : Number(turn.diarization_end_ms),
-      diarization_confidence: turn.diarization_confidence === undefined ? null : turn.diarization_confidence
+      diarization_confidence: turn.diarization_confidence === undefined ? null : turn.diarization_confidence,
+      diarization_match_mode: turn.diarization_match_mode || "",
+      diarization_overlap_ms: turn.diarization_overlap_ms === undefined ? null : Number(turn.diarization_overlap_ms)
     };
   }
 

@@ -23,7 +23,7 @@ class BaseDiarizationProvider(ABC):
         }
 
     @abstractmethod
-    async def accept_audio(self, session: DiarizationSession, chunk: bytes) -> SpeakerSegment | None:
+    async def accept_audio(self, session: DiarizationSession, chunk: bytes) -> SpeakerSegment | list[SpeakerSegment] | None:
         raise NotImplementedError
 
     async def finish_session(self, session: DiarizationSession) -> dict[str, Any]:
@@ -33,4 +33,3 @@ class BaseDiarizationProvider(ABC):
             "provider": self.health().provider,
             "status": self.health().status,
         }
-

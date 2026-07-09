@@ -19,6 +19,8 @@ class StreamingSession:
     final_text: str = ""
     final_sent: bool = False
     sent_audio_chunks: int = 0
+    turn_counter: int = 0
+    last_final_end_ms: int = 0
     turns: list[dict[str, Any]] = field(default_factory=list)
 
 

@@ -139,7 +139,7 @@ class DiartProvider(BaseDiarizationProvider):
     def health(self) -> DiarizationHealth:
         return self._health
 
-    async def accept_audio(self, session: DiarizationSession, chunk: bytes) -> SpeakerSegment | None:
+    async def accept_audio(self, session: DiarizationSession, chunk: bytes) -> list[SpeakerSegment] | None:
         session.chunk_count += 1
         if not self._health.ok or self.pipeline is None:
             return None
@@ -173,19 +173,26 @@ class DiartProvider(BaseDiarizationProvider):
             return None
 
         annotation, _ = outputs[-1]
+        speaker_segments: list[SpeakerSegment] = []
         for segment, _track, speaker in annotation.itertracks(yield_label=True):
-            return SpeakerSegment(
-                session_id=session.session_id,
-                speaker_id=str(speaker),
-                start_ms=max(0, int(round(segment.start * 1000))),
-                end_ms=max(0, int(round(segment.end * 1000))),
-                confidence=None,
-                is_final=False,
-                source="diart_local",
-                automatic=True,
-                status="available",
+            start_ms = max(0, int(round(segment.start * 1000)))
+            end_ms = max(0, int(round(segment.end * 1000)))
+            if end_ms <= start_ms:
+                continue
+            speaker_segments.append(
+                SpeakerSegment(
+                    session_id=session.session_id,
+                    speaker_id=str(speaker),
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    confidence=None,
+                    is_final=False,
+                    source="diart_local",
+                    automatic=True,
+                    status="available",
+                )
             )
-        return None
+        return speaker_segments or None
 
     def _decode_audio(self, chunk: bytes):
         import numpy as np

@@ -79,8 +79,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             chunk = message.get("bytes")
             if not chunk:
                 continue
-            segment = await provider.accept_audio(session, chunk)
-            if segment:
+            segments = await provider.accept_audio(session, chunk)
+            if not segments:
+                continue
+            if not isinstance(segments, list):
+                segments = [segments]
+            for segment in segments:
                 await websocket.send_json(segment.dict())
     except WebSocketDisconnect:
         return

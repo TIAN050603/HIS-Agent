@@ -142,6 +142,7 @@
       lastReason: "",
       lastError: "",
       lastResult: null,
+      firstRoundTriggered: false,
       manualEditing: false
     },
     planningTask: null,
@@ -3997,6 +3998,7 @@
     runtime.semanticRoleMapping.stopped = true;
     runtime.semanticRoleMapping.frozen = false;
     runtime.semanticRoleMapping.lastResult = null;
+    runtime.semanticRoleMapping.firstRoundTriggered = false;
     runtime.lastAsrEvent = null;
     elements.voiceDraft.innerHTML = "";
     renderTurns();
@@ -4067,6 +4069,7 @@
     runtime.semanticRoleMapping.lastReason = "";
     runtime.semanticRoleMapping.lastError = "";
     runtime.semanticRoleMapping.lastResult = null;
+    runtime.semanticRoleMapping.firstRoundTriggered = false;
   }
 
   function stopSemanticRoleMappingTriggers() {
@@ -4087,6 +4090,7 @@
       frozen: Boolean(state.voiceTurnsFrozen || runtime.semanticRoleMapping.frozen),
       lastMappedAt: runtime.semanticRoleMapping.lastMappedAt || 0,
       lastMappedFinalTurnCount: runtime.semanticRoleMapping.lastMappedFinalTurnCount || 0,
+      firstRoundTriggered: Boolean(runtime.semanticRoleMapping.firstRoundTriggered),
       lastReason: runtime.semanticRoleMapping.lastReason || "",
       lastError: runtime.semanticRoleMapping.lastError || "",
       mapping: currentSpeakerRoleMapping(),
@@ -4102,7 +4106,7 @@
       speaker_1: "patient"
     }, state.voiceSemanticMapping && state.voiceSemanticMapping.mapping || {});
     state.speakerTurns.forEach(function (turn) {
-      const speakerId = normalizeSpeakerId(turn && turn.speaker);
+      const speakerId = normalizeSpeakerId(turn && (turn.speaker || turn.speaker_id || turn.raw_speaker || turn.raw_speaker_id));
       if (!speakerId || mapping[speakerId]) {
         return;
       }
@@ -4121,7 +4125,7 @@
   function compactSemanticRoleTurns(turns) {
     return (Array.isArray(turns) ? turns : []).filter(isFinalTextTurn).slice(-40).map(function (turn) {
       return {
-        speaker: normalizeSpeakerId(turn.speaker || turn.raw_speaker) || "",
+        speaker: normalizeSpeakerId(turn.speaker || turn.speaker_id || turn.raw_speaker || turn.raw_speaker_id) || "",
         role: normalizeRole(turn.role),
         role_label: roleLabel(turn.role),
         role_source: turn.role_source || "",
@@ -4155,6 +4159,21 @@
     });
   }
 
+  function hasFirstRoundSemanticRoleSample(turns) {
+    const speakers = {};
+    const roles = {};
+    compactSemanticRoleTurns(turns).forEach(function (turn) {
+      if (turn.speaker) {
+        speakers[turn.speaker] = true;
+      }
+      const role = normalizeRole(turn.role);
+      if (role === "doctor" || role === "patient") {
+        roles[role] = true;
+      }
+    });
+    return Object.keys(speakers).length >= 2 && roles.doctor && roles.patient;
+  }
+
   function hasActivePageMutationStep() {
     const summary = window.AgentTaskOrchestrator && window.AgentTaskOrchestrator.getSummary
       ? window.AgentTaskOrchestrator.getSummary()
@@ -4169,7 +4188,8 @@
   function shouldTriggerSemanticRoleMapping(turns, options) {
     const settings = options || {};
     const finalTurns = turns || finalVoiceTurnsRaw();
-    if (!hasSemanticRoleSample(finalTurns)) {
+    const firstRound = Boolean(settings.firstRound);
+    if (firstRound ? !hasFirstRoundSemanticRoleSample(finalTurns) : !hasSemanticRoleSample(finalTurns)) {
       return false;
     }
     if (runtime.semanticRoleMapping.inFlight) {
@@ -4190,6 +4210,9 @@
     if (settings.force) {
       return true;
     }
+    if (firstRound) {
+      return true;
+    }
     const now = Date.now();
     if (runtime.semanticRoleMapping.lastMappedAt && now - runtime.semanticRoleMapping.lastMappedAt < SEMANTIC_ROLE_COOLDOWN_MS) {
       return false;
@@ -4197,6 +4220,24 @@
     if (finalTurns.length - Number(runtime.semanticRoleMapping.lastMappedFinalTurnCount || 0) < SEMANTIC_ROLE_MIN_NEW_FINAL_TURNS) {
       return false;
     }
+    return true;
+  }
+
+  function maybeTriggerFirstRoundSemanticRoleMapping(reason) {
+    if (runtime.semanticRoleMapping.firstRoundTriggered) {
+      return false;
+    }
+    const finalTurns = finalVoiceTurnsRaw();
+    if (!shouldTriggerSemanticRoleMapping(finalTurns, { firstRound: true })) {
+      return false;
+    }
+    runtime.semanticRoleMapping.firstRoundTriggered = true;
+    runSemanticRoleMapping(reason || "first_doctor_patient_turns", {
+      background: true,
+      firstRound: true
+    }).catch(function () {
+      return null;
+    });
     return true;
   }
 
@@ -4279,7 +4320,7 @@
     const conflicts = [];
     let changed = false;
     state.speakerTurns = state.speakerTurns.map(function (turn) {
-      const speakerId = normalizeSpeakerId(turn && (turn.speaker || turn.raw_speaker));
+      const speakerId = normalizeSpeakerId(turn && (turn.speaker || turn.speaker_id || turn.raw_speaker || turn.raw_speaker_id));
       const nextRole = speakerId ? mapping[speakerId] : "";
       if (nextRole !== "doctor" && nextRole !== "patient") {
         return turn;
@@ -4704,7 +4745,9 @@
         setVoiceActionAvailability();
         saveState();
         if (finalVoiceTurnsRaw().length > beforeFinalCount) {
-          maybeTriggerSemanticRoleMapping("final_turn_added");
+          if (!maybeTriggerFirstRoundSemanticRoleMapping("first_doctor_patient_turns")) {
+            maybeTriggerSemanticRoleMapping("final_turn_added");
+          }
         }
       }
     });
@@ -4907,7 +4950,7 @@
   }
 
   function buildFallbackTurn(data, text) {
-    const rawSpeakerId = data.raw_speaker || data.speaker || "";
+    const rawSpeakerId = data.raw_speaker || data.raw_speaker_id || data.speaker || data.speaker_id || "";
     const speakerId = normalizeSpeakerId(rawSpeakerId);
     const mapped = roleFromSpeakerId(speakerId);
     const role = data.role || mapped.role;
@@ -4930,7 +4973,7 @@
   }
 
   function normalizeTurn(turn, finalFromMessage) {
-    const rawSpeakerId = turn.raw_speaker || turn.speaker || "";
+    const rawSpeakerId = turn.raw_speaker || turn.raw_speaker_id || turn.speaker || turn.speaker_id || "";
     const speakerId = normalizeSpeakerId(rawSpeakerId);
     const mapped = roleFromSpeakerId(speakerId);
     const role = normalizeRole(turn.role || mapped.role);
@@ -4954,7 +4997,9 @@
       role_source: turn.role_source || (speakerId ? "default_mapping" : "manual_fallback"),
       diarization_start_ms: turn.diarization_start_ms === undefined ? null : Number(turn.diarization_start_ms),
       diarization_end_ms: turn.diarization_end_ms === undefined ? null : Number(turn.diarization_end_ms),
-      diarization_confidence: turn.diarization_confidence === undefined ? null : turn.diarization_confidence
+      diarization_confidence: turn.diarization_confidence === undefined ? null : turn.diarization_confidence,
+      diarization_match_mode: turn.diarization_match_mode || "",
+      diarization_overlap_ms: turn.diarization_overlap_ms === undefined ? null : Number(turn.diarization_overlap_ms)
     };
   }
 
@@ -4978,7 +5023,9 @@
           automatic_diarization: previous.automatic_diarization,
           diarization_start_ms: previous.diarization_start_ms,
           diarization_end_ms: previous.diarization_end_ms,
-          diarization_confidence: previous.diarization_confidence
+          diarization_confidence: previous.diarization_confidence,
+          diarization_match_mode: previous.diarization_match_mode,
+          diarization_overlap_ms: previous.diarization_overlap_ms
         } : {}, manualRole ? {
           role: previous.role,
           role_label: previous.role_label,
