@@ -1,0 +1,24 @@
+[Unit]
+Description=HIS-Agent GPT-5.5 OpenAI-compatible proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hisagent
+Group=hisagent
+WorkingDirectory=/opt/his-agent
+EnvironmentFile=/opt/his-agent/backend/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/his-agent/backend/.venv/bin/python /opt/his-agent/scripts/llm_openai_proxy.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+MemoryMax=200M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
