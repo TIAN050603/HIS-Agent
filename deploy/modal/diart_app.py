@@ -112,7 +112,7 @@ def populate_model_cache() -> dict[str, object]:
     secrets=[huggingface_secret, diart_auth_secret],
     volumes={CACHE_PATH: model_cache},
     timeout=3600,
-    scaledown_window=600,
+    scaledown_window=300,
     min_containers=0,
     max_containers=1,
 )

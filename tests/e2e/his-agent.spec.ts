@@ -492,6 +492,17 @@ test.describe("Backend CORS and LLM connectivity", () => {
     releaseDiarization();
     await expect(page.locator("#hisAgentStatusView")).toContainText("Connected");
     await expect(page.locator("#hisAgentActivateDiarizationButton")).toContainText("Restart Diart");
+    await expect(page.locator("#hisAgentStopDiarizationButton")).toBeEnabled();
+
+    await page.locator("#hisAgentStopDiarizationButton").click();
+    await expect(page.locator("#hisAgentStatusView")).toContainText("Warm standby (up to 300s)");
+    await expect(page.locator("#hisAgentStopDiarizationButton")).toBeDisabled();
+    expect(diarizationHealthCalls).toBe(1);
+
+    await page.locator("#hisAgentActivateDiarizationButton").click();
+    await expect.poll(() => diarizationHealthCalls).toBe(2);
+    await expect(page.locator("#hisAgentStatusView")).toContainText("Connected");
+    await expect(page.locator("#hisAgentStopDiarizationButton")).toBeEnabled();
   });
 
   test("Start Voice Task shows the Diart cold start and waits for the live socket", async ({ page }) => {

@@ -136,6 +136,8 @@
     statusRefreshInFlight: false,
     statusRefreshStage: "",
     diarizationActivationInFlight: false,
+    diarizationStopInFlight: false,
+    diarizationWarmTimer: null,
     voiceStartInFlight: false,
     voicePlanMessage: null,
     semanticRoleMapping: {
@@ -652,6 +654,7 @@
       '    <div class="his-agent-actions his-agent-status-actions">',
       '      <button type="button" class="his-agent-button secondary" id="hisAgentRefreshStatusButton">Refresh Status</button>',
       '      <button type="button" class="his-agent-button primary" id="hisAgentActivateDiarizationButton">Activate Diart</button>',
+      '      <button type="button" class="his-agent-button secondary" id="hisAgentStopDiarizationButton" disabled>Stop Diart</button>',
       "    </div>",
       "  </section>",
       '  <section class="his-agent-view his-agent-examples-view" id="hisAgentExamplesView" data-agent-view="examples" hidden>',
@@ -728,6 +731,7 @@
       statusContent: panel.querySelector("#hisAgentStatusContent"),
       statusRefreshButton: panel.querySelector("#hisAgentRefreshStatusButton"),
       activateDiarizationButton: panel.querySelector("#hisAgentActivateDiarizationButton"),
+      stopDiarizationButton: panel.querySelector("#hisAgentStopDiarizationButton"),
       examplesList: panel.querySelector("#hisAgentExamplesList"),
       home: panel.querySelector("#hisAgentHome"),
       topicGrid: panel.querySelector("#hisAgentTopicGrid"),
@@ -791,6 +795,7 @@
       "statusContent",
       "statusRefreshButton",
       "activateDiarizationButton",
+      "stopDiarizationButton",
       "examplesList",
       "home",
       "topicGrid",
@@ -942,6 +947,7 @@
     elements.openHistoryButton.addEventListener("click", openAgentHistory);
     elements.statusRefreshButton.addEventListener("click", showConnectionTopic);
     elements.activateDiarizationButton.addEventListener("click", activateDiarization);
+    elements.stopDiarizationButton.addEventListener("click", stopDiarization);
     elements.topicGrid.addEventListener("click", handleTopicClick);
     elements.examplesList.addEventListener("click", function (event) {
       const button = event.target.closest("[data-example-task]");
@@ -1164,10 +1170,51 @@
       : (connectionDiarizationStatusValue() === "connected" ? "Restart Diart" : "Activate Diart");
   }
 
+  function updateDiarizationActionButtons() {
+    const connected = connectionDiarizationStatusValue() === "connected";
+    if (elements.activateDiarizationButton && !runtime.diarizationActivationInFlight) {
+      elements.activateDiarizationButton.disabled = Boolean(runtime.diarizationStopInFlight || runtime.voiceStartInFlight);
+      elements.activateDiarizationButton.textContent = connected ? "Restart Diart" : "Activate Diart";
+    }
+    if (elements.stopDiarizationButton) {
+      elements.stopDiarizationButton.disabled = !connected || runtime.diarizationActivationInFlight || runtime.diarizationStopInFlight;
+      elements.stopDiarizationButton.classList.toggle("is-loading", runtime.diarizationStopInFlight);
+      elements.stopDiarizationButton.setAttribute("aria-busy", runtime.diarizationStopInFlight ? "true" : "false");
+      elements.stopDiarizationButton.innerHTML = runtime.diarizationStopInFlight
+        ? '<span class="his-agent-spinner" aria-hidden="true"></span><span>Stopping...</span>'
+        : "Stop Diart";
+      elements.stopDiarizationButton.title = connected
+        ? "Close active Diart use and enter warm standby for up to 300 seconds"
+        : "Diart must be connected before it can be stopped";
+    }
+  }
+
+  function clearDiarizationWarmTimer() {
+    if (runtime.diarizationWarmTimer) {
+      window.clearTimeout(runtime.diarizationWarmTimer);
+      runtime.diarizationWarmTimer = null;
+    }
+  }
+
+  function scheduleDiarizationWarmExpiry() {
+    clearDiarizationWarmTimer();
+    runtime.diarizationWarmTimer = window.setTimeout(function () {
+      runtime.diarizationWarmTimer = null;
+      if (state.diarizationStatus !== "warming") return;
+      state.diarizationStatus = "not_activated";
+      state.diarizationProvider = "disabled";
+      runtime.serviceDetails.diarization.status = "not_activated";
+      runtime.serviceDetails.diarization.error = "The 300-second warm-standby window elapsed. Activate Diart to use it again.";
+      renderCompactServiceStatus();
+      saveState();
+    }, 300000);
+  }
+
   async function activateDiarization() {
     if (runtime.diarizationActivationInFlight) {
       return;
     }
+    clearDiarizationWarmTimer();
     runtime.diarizationActivationInFlight = true;
     state.diarizationStatus = "starting";
     state.diarizationProvider = "diart_local";
@@ -1191,6 +1238,35 @@
       runtime.diarizationActivationInFlight = false;
       setDiarizationActivationLoading(false);
       renderCompactServiceStatus();
+    }
+  }
+
+  async function stopDiarization() {
+    if (runtime.diarizationStopInFlight || connectionDiarizationStatusValue() !== "connected") {
+      return;
+    }
+    runtime.diarizationStopInFlight = true;
+    updateDiarizationActionButtons();
+    setStatus("Stopping active Diart use and entering warm standby...");
+    try {
+      if (runtime.recording && runtime.voiceMode === "session") {
+        await stopActiveVoice("manual_diart_stop");
+      }
+      state.diarizationStatus = "warming";
+      state.diarizationProvider = "diart_local";
+      state.diarizationWebSocketStatus = "idle";
+      runtime.serviceDetails.diarization = {
+        url: ((state.diarizationUrl || DEFAULT_STATE.diarizationUrl || state.backendUrl || DEFAULT_STATE.backendUrl).replace(/\/+$/, "")) + "/diarization/health",
+        status: "warming",
+        error: "Active use stopped. Modal may keep the container warm for up to 300 seconds."
+      };
+      scheduleDiarizationWarmExpiry();
+      setStatus("Diart is in warm standby for up to 300 seconds. A later explicit activation or Start Voice Task will resume it.");
+      saveState();
+    } finally {
+      runtime.diarizationStopInFlight = false;
+      renderCompactServiceStatus();
+      updateDiarizationActionButtons();
     }
   }
 
@@ -1279,6 +1355,7 @@
     const labels = {
       connected: "Connected",
       starting: "Starting (cold start)",
+      warming: "Warm standby (up to 300s)",
       not_activated: "Not activated",
       llm_enabled: "Executable",
       blocked_no_llm: "Temporarily blocked",
@@ -1737,6 +1814,7 @@
     renderServiceDiagnostics();
     renderLauncherStatus();
     renderVoiceSessionStatus();
+    updateDiarizationActionButtons();
     if (state.viewMode === "status") {
       renderStatusView(runtime.statusRefreshStage || "done");
     }
@@ -1773,6 +1851,8 @@
     let notice = "";
     if (runtime.voiceStartInFlight || diarization === "starting" || diarizationSocket === "starting") {
       notice = "Diart is starting. A cold start can take tens of seconds. Wait for the ready message before speaking.";
+    } else if (diarization === "warming") {
+      notice = "Diart is in warm standby. Click Start Voice Task to resume it before speaking.";
     } else if (runtime.recording && runtime.voiceMode === "session" && diarization === "connected" && diarizationSocket === "connected") {
       notice = "Diart is connected. You can begin the doctor-patient conversation now.";
     } else if (microphone === "checking") {
@@ -1855,6 +1935,7 @@
     const status = connectionStatusText(state.diarizationStatus);
     const socketStatus = connectionStatusText(state.diarizationWebSocketStatus);
     if (status === "starting" || socketStatus === "starting") return "Starting...";
+    if (status === "warming") return "Warm standby";
     if (provider.indexOf("diart") >= 0 && status === "connected" && socketStatus === "connected") return "Connected";
     if (provider.indexOf("diart") >= 0 && status === "connected") return "Ready";
     if (status === "not_activated" || provider.indexOf("disabled") >= 0) return "Not activated";
@@ -1883,6 +1964,7 @@
     if (!text) return "unknown";
     if (lower === "connected" || lower === "ok" || lower === "available" || text.indexOf("Available") >= 0 || text.indexOf("Connected") >= 0) return "connected";
     if (lower === "starting" || lower === "connecting" || lower === "cold_starting") return "starting";
+    if (lower === "warming" || lower === "warm_standby") return "warming";
     if (lower === "not_activated" || lower === "disabled") return "not_activated";
     if (lower.indexOf("diart_local") >= 0 && lower.indexOf("connected") >= 0) return "connected";
     if (lower.indexOf("manual") >= 0) return "neutral";
@@ -1913,7 +1995,7 @@
   function connectionStatusClass(value) {
     const text = connectionStatusText(value).toLowerCase();
     if (text === "connected" || text === "llm_enabled" || text === "available" || text === "permission_granted" || text === "recording") return "connected";
-    if (text === "blocked_no_llm" || text === "llm_check_required" || text === "slow" || text === "not_configured" || text === "unknown" || text === "not_activated") return "warning";
+    if (text === "blocked_no_llm" || text === "llm_check_required" || text === "slow" || text === "not_configured" || text === "unknown" || text === "not_activated" || text === "warming") return "warning";
     if (text === "permission_prompt" || text === "permission_denied" || text === "insecure_context" || text === "blocked_by_browser" || text === "blocked_by_asr" || text === "unavailable" || text === "unavailable_api" || text === "not_found" || text === "device_busy" || text === "get_user_media_error") return "warning";
     if (text === "checking" || text === "starting" || text === "timeout") return "checking";
     if (text === "disconnected" || text.indexOf("http_") === 0) return "disconnected";
@@ -4774,6 +4856,7 @@
       return;
     }
     if (runtime.voiceStartInFlight) return;
+    clearDiarizationWarmTimer();
     runtime.voiceStartInFlight = true;
     runtime.voiceMode = "session";
     state.diarizationStatus = "starting";
@@ -5486,6 +5569,7 @@
   }
 
   async function probeDiarization() {
+    clearDiarizationWarmTimer();
     const base = (state.diarizationUrl || DEFAULT_STATE.diarizationUrl || state.backendUrl || DEFAULT_STATE.backendUrl).replace(/\/+$/, "");
     const url = base + "/diarization/health";
     state.diarizationStatus = "starting";
