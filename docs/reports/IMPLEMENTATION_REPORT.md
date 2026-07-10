@@ -2262,3 +2262,11 @@ http://10.26.6.8:31451/html/login.html?v=20260625-task-telemetry-panel
 - Default E2E: `HIS_BASE_URL=http://10.26.6.8:31451 npm run test:e2e -- --reporter=list` -> `80 passed / 3 skipped / 0 failed`.
 - `RUN_LLM_E2E=1`: full suite wait exceeded 5 minutes; focused `@llm` phone-update test failed because P001 phone remained `13810010001` instead of `13800138000` after 90s. Direct backend health probe returned `{"ok":true,"provider":"qwen","model":"qwen3-14b","content":"ok"}` in `0.14s`.
 - Loop: P0 `iteration-050` -> `8 / 0 / 0`; P1 `iteration-051` -> `14 / 0 / 0`; full evaluate `iteration-052` -> `29 / 0 / 0`.
+
+## 2026-07-10 Aliyun CPU and Modal T4 Deployment
+
+- Added a same-origin production default in `shared/runtime-config.js`. Pages on standard HTTP/HTTPS ports now use their own origin for backend, ASR, LLM status, and diarization proxy URLs; development pages on explicit ports retain the existing separate-port defaults.
+- Added an Aliyun deployment layout under `deploy/aliyun/`: one Nginx static/reverse-proxy site plus separate single-worker systemd services for the GPT-5.5 proxy, FastAPI backend, and external Qwen3 ASR bridge.
+- Added `deploy/modal/diart_app.py`: a scale-to-zero Modal ASGI WebSocket service using a T4, a named Hugging Face secret, and a persistent model-cache volume.
+- No API key, server password, Modal token, or Hugging Face token is stored in the repository.
+- Production verification is recorded separately after the Aliyun services, TLS endpoint, and Modal deployment are live.

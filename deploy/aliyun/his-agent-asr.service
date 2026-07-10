@@ -1,0 +1,24 @@
+[Unit]
+Description=HIS-Agent external ASR bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hisagent
+Group=hisagent
+WorkingDirectory=/opt/his-agent/asr_service
+EnvironmentFile=/opt/his-agent/asr_service/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/his-agent/asr_service/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 1 --log-level info
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+MemoryMax=400M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

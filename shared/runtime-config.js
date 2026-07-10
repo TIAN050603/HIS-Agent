@@ -38,6 +38,13 @@
     return currentProtocol() + "//" + currentHost() + ":" + port;
   }
 
+  function serviceDefaultUrl(port, frontendFromPage) {
+    const location = window.location;
+    const isWebPage = location && location.protocol !== "file:" && location.origin;
+    const isStandardWebPort = isWebPage && (!location.port || location.port === "80" || location.port === "443");
+    return isStandardWebPort ? frontendFromPage : baseUrl(port);
+  }
+
   function normalizeUrl(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
     if (!text) return "";
@@ -113,14 +120,17 @@
     const frontendFromPage = window.location && window.location.origin && window.location.protocol !== "file:"
       ? window.location.origin
       : baseUrl(DEFAULT_PORTS.frontend);
+    const backendDefault = serviceDefaultUrl(DEFAULT_PORTS.backend, frontendFromPage);
+    const asrDefault = serviceDefaultUrl(DEFAULT_PORTS.asr, frontendFromPage);
+    const llmDefault = serviceDefaultUrl(DEFAULT_PORTS.llm, frontendFromPage);
     return {
       frontendUrl: queryUrl(["frontendUrl", "frontend"]) || envUrl(["frontendUrl", "frontend"]) || storedUrl(stored, ["frontendUrl", "frontend"], frontendFromPage),
-      backendUrl: queryUrl(["backendUrl", "backend"]) || envUrl(["backendUrl", "backend"]) || storedUrl(stored, ["backendUrl", "backend"], baseUrl(DEFAULT_PORTS.backend)),
-      asrUrl: queryUrl(["asrUrl", "asr"]) || envUrl(["asrUrl", "asr"]) || storedUrl(stored, ["asrUrl", "asr"], baseUrl(DEFAULT_PORTS.asr)),
-      llmUrl: queryUrl(["llmUrl", "llm"]) || envUrl(["llmUrl", "llm"]) || storedUrl(stored, ["llmUrl", "llm"], baseUrl(DEFAULT_PORTS.llm)),
+      backendUrl: queryUrl(["backendUrl", "backend"]) || envUrl(["backendUrl", "backend"]) || storedUrl(stored, ["backendUrl", "backend"], backendDefault),
+      asrUrl: queryUrl(["asrUrl", "asr"]) || envUrl(["asrUrl", "asr"]) || storedUrl(stored, ["asrUrl", "asr"], asrDefault),
+      llmUrl: queryUrl(["llmUrl", "llm"]) || envUrl(["llmUrl", "llm"]) || storedUrl(stored, ["llmUrl", "llm"], llmDefault),
       diarizationUrl: queryUrl(["diarizationUrl", "diarizationBaseUrl", "diarization"]) ||
         envUrl(["diarizationUrl", "diarizationBaseUrl", "diarization"]) ||
-        storedUrl(stored, ["diarizationUrl", "diarizationBaseUrl", "diarization"], queryUrl(["backendUrl", "backend"]) || envUrl(["backendUrl", "backend"]) || storedUrl(stored, ["backendUrl", "backend"], baseUrl(DEFAULT_PORTS.backend))),
+        storedUrl(stored, ["diarizationUrl", "diarizationBaseUrl", "diarization"], queryUrl(["backendUrl", "backend"]) || envUrl(["backendUrl", "backend"]) || storedUrl(stored, ["backendUrl", "backend"], backendDefault)),
       host: currentHost(),
       ports: Object.assign({}, DEFAULT_PORTS)
     };
