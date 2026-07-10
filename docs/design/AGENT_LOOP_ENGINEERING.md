@@ -47,7 +47,7 @@ Full all-patient all-field mutation execution is intentionally not claimed compl
 
 - Current public mapping: frontend `5500->31589`, backend `8000->31835`, ASR `8010->31272`, LLM service `8001->31517`, Jupyter `8888->48244`, SSH `22->30855`.
 - Current base URL: `http://10.26.6.8:31589`.
-- `call_qwen_json` now performs one backend-LLM JSON repair retry when the first backend response is invalid JSON. This is not a local keyword fallback; the repair request still goes through the configured backend LLM and the normal schema validation path.
+- `call_llm_json` now performs one backend-LLM JSON repair retry when the first backend response is invalid JSON. This is not a local keyword fallback; the repair request still goes through the configured backend LLM and the normal schema validation path.
 - P2 skipped cases were automated: latest output visibility, user-scroll preservation, new-message prompt, home-view progress isolation, expanded-step scroll stability, and rich agent-history fields.
 - Scroll manager `force` now explicitly keeps auto-follow enabled and repeats bottom alignment across layout frames so new task output remains visible when the user is already at the bottom.
 - P2 iteration 037: `7 / 0 / 0`.
@@ -70,4 +70,4 @@ Full all-patient all-field mutation execution is intentionally not claimed compl
 - P1 loop: `iteration-051`, `14 passed / 0 failed / 0 skipped`.
 - Full evaluate loop: `iteration-052`, score `100`, `29 passed / 0 failed / 0 skipped`.
 - Default E2E: `80 passed / 3 skipped / 0 failed`.
-- Live LLM note: backend health returned `qwen3-14b ok` quickly, but the focused live `@llm` phone mutation case failed to mutate P001 within 90s; do not treat that as loop/timer convergence.
+- Historical live-LLM note: an earlier Qwen3-14B backend returned health quickly, but the focused live `@llm` phone mutation case failed to mutate P001 within 90s; do not treat that historical run as loop/timer convergence. The current reference deployment uses GPT-5.5.

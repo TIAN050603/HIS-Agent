@@ -424,7 +424,7 @@ async function runTerminalTaskCase(page, assertions, record) {
 }
 
 async function runNoLlmNoActionCase(page, assertions, record) {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "loop no llm" }) });
   });
   await page.route(/\/api\/universal-agent\/task-plan$/, async (route) => {
@@ -1215,7 +1215,7 @@ async function ensureAgentOpen(page) {
 }
 
 async function simulateLlmPlanner(page, plan, slots = {}, taskId = "loop_task") {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1260,7 +1260,7 @@ async function simulateLlmPlanner(page, plan, slots = {}, taskId = "loop_task") 
 }
 
 async function routeStructuredLlmHealthOk(page) {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

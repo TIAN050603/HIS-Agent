@@ -40,7 +40,7 @@ async function ensureAgentOpen(page) {
 }
 
 async function simulateNoLlm(page) {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({
       status: 503,
       contentType: "application/json",
@@ -57,7 +57,7 @@ async function simulateNoLlm(page) {
 }
 
 async function simulateLlmPlanner(page, plan, slots = {}, taskId = "e2e_login_precondition_task") {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -103,7 +103,7 @@ async function simulateLlmPlanner(page, plan, slots = {}, taskId = "e2e_login_pr
 }
 
 async function simulateConnectedLlm(page) {
-  await page.route(/\/api\/(llm|qwen)\/test$/, async (route) => {
+  await page.route(/\/api\/llm\/test$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2599,7 +2599,7 @@ test.describe("Login page task precondition", () => {
 
   test("Agent login success and failed credential variants match page validation", async ({ page }) => {
     async function runLoginPlan(username: string, password: string, taskId: string) {
-      await page.unroute(/\/api\/(llm|qwen)\/test$/).catch(() => {});
+      await page.unroute(/\/api\/llm\/test$/).catch(() => {});
       await page.unroute(/\/api\/universal-agent\/task-plan$/).catch(() => {});
       await simulateLlmPlanner(page, [
         {

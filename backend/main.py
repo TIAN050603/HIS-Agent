@@ -531,8 +531,8 @@ def format_elapsed_time(elapsed_ms: int) -> str:
 
 
 
-@timed("remove_qwen_think_blocks")
-def remove_qwen_think_blocks(text: str) -> str:
+@timed("remove_llm_think_blocks")
+def remove_llm_think_blocks(text: str) -> str:
     cleaned = (text or "").strip()
     while True:
         start = cleaned.find("<think>")
@@ -548,7 +548,7 @@ def remove_qwen_think_blocks(text: str) -> str:
 
 @timed("extract_json_object_text")
 def extract_json_object_text(text: str) -> str:
-    cleaned = remove_qwen_think_blocks(text)
+    cleaned = remove_llm_think_blocks(text)
     if not cleaned:
         return cleaned
     try:
@@ -590,8 +590,8 @@ def extract_json_object_text(text: str) -> str:
     return cleaned
 
 
-@timed("parse_qwen_json_content")
-def parse_qwen_json_content(content: str) -> tuple[dict[str, Any], str]:
+@timed("parse_llm_json_content")
+def parse_llm_json_content(content: str) -> tuple[dict[str, Any], str]:
     candidate = extract_json_object_text(content or "")
     return json.loads(candidate), candidate
 
@@ -604,30 +604,16 @@ def normalize_target_url(url: str) -> str:
 
 
 
-@timed("get_dashscope_base_url")
-def get_dashscope_base_url() -> str:
-    return (
-        os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").strip()
-        or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    )
-
-
-@timed("get_dashscope_model")
-def get_dashscope_model() -> str:
-    return os.getenv("DASHSCOPE_MODEL", "qwen-plus").strip() or "qwen-plus"
-
-
 @timed("get_llm_provider")
 def get_llm_provider() -> str:
-    provider = (os.getenv("LLM_PROVIDER") or "qwen").strip().lower()
-    return provider or "qwen"
+    provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
+    return provider or "openai"
 
 
 @timed("get_llm_api_key")
 def get_llm_api_key() -> str:
     return (
         os.getenv("LLM_API_KEY")
-        or os.getenv("DASHSCOPE_API_KEY")
         or os.getenv("OPENAI_API_KEY")
         or ""
     ).strip()
@@ -635,11 +621,9 @@ def get_llm_api_key() -> str:
 
 @timed("get_llm_base_url")
 def get_llm_base_url() -> str:
-    provider = get_llm_provider()
-    default_url = "https://api.openai.com/v1" if provider == "openai" else "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    default_url = "https://api.openai.com/v1"
     return (
         os.getenv("LLM_BASE_URL")
-        or os.getenv("DASHSCOPE_BASE_URL")
         or os.getenv("OPENAI_BASE_URL")
         or default_url
     ).strip() or default_url
@@ -649,9 +633,8 @@ def get_llm_base_url() -> str:
 def get_llm_model() -> str:
     return (
         os.getenv("LLM_MODEL")
-        or os.getenv("DASHSCOPE_MODEL")
         or os.getenv("OPENAI_MODEL")
-        or ("gpt-4o" if get_llm_provider() == "openai" else "qwen-plus")
+        or "gpt-5.5"
     ).strip()
 
 
@@ -662,9 +645,6 @@ def build_chat_completion_payload(messages: list[dict[str, str]], max_tokens: in
         "temperature": 0,
         "max_tokens": max_tokens,
     }
-    if get_llm_provider() in {"qwen", "dashscope"}:
-        payload["enable_thinking"] = False
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
     return payload
 
 
@@ -696,7 +676,7 @@ async def test_llm():
     api_key = get_llm_api_key()
     provider = get_llm_provider()
     if not api_key:
-        return utf8_json({"ok": False, "error": "未配置 LLM_API_KEY / DASHSCOPE_API_KEY / OPENAI_API_KEY"}, 400)
+        return utf8_json({"ok": False, "error": "LLM_API_KEY / OPENAI_API_KEY is not configured"}, 400)
 
     model = get_llm_model()
     base_url = get_llm_base_url().rstrip("/")
@@ -742,12 +722,6 @@ async def test_llm():
         return utf8_json({"ok": False, "error": "LLM test failed: " + str(exc)}, 500)
 
 
-@app.get("/api/qwen/test", response_model=None)
-@timed("endpoint:test_qwen_compat")
-async def test_qwen():
-    return await test_llm()
-
-
 @timed("build_plan_prompt")
 def build_plan_prompt(command: str) -> list[dict[str, str]]:
     schema = {
@@ -780,8 +754,8 @@ def build_plan_prompt(command: str) -> list[dict[str, str]]:
     ]
 
 
-@timed("call_qwen_for_plan")
-def call_qwen_for_plan(command: str) -> tuple[dict[str, Any] | None, str, str | None, dict[str, Any]]:
+@timed("call_llm_for_plan")
+def call_llm_for_plan(command: str) -> tuple[dict[str, Any] | None, str, str | None, dict[str, Any]]:
     llm_info = {
         "llmUsed": False,
         "provider": get_llm_provider(),
@@ -791,7 +765,7 @@ def call_qwen_for_plan(command: str) -> tuple[dict[str, Any] | None, str, str | 
     }
     api_key = get_llm_api_key()
     if not api_key:
-        return None, "", "未配置 LLM_API_KEY / DASHSCOPE_API_KEY / OPENAI_API_KEY", llm_info
+        return None, "", "LLM_API_KEY / OPENAI_API_KEY is not configured", llm_info
 
     url = get_llm_base_url().rstrip("/") + "/chat/completions"
     try:
@@ -830,15 +804,15 @@ def call_qwen_for_plan(command: str) -> tuple[dict[str, Any] | None, str, str | 
 
     raw_content = (content or "").strip()
     try:
-        parsed_content, parsed_raw = parse_qwen_json_content(raw_content)
+        parsed_content, parsed_raw = parse_llm_json_content(raw_content)
         return parsed_content, parsed_raw, None, llm_info
     except json.JSONDecodeError:
         return None, raw_content, "LLM 没有返回合法 JSON", llm_info
 
 
 
-@timed("call_qwen_json")
-def call_qwen_json(messages: list[dict[str, str]], purpose: str, max_tokens: int = 900) -> tuple[dict[str, Any] | None, str, str | None, dict[str, Any]]:
+@timed("call_llm_json")
+def call_llm_json(messages: list[dict[str, str]], purpose: str, max_tokens: int = 900) -> tuple[dict[str, Any] | None, str, str | None, dict[str, Any]]:
     llm_info = {
         "llmUsed": False,
         "provider": get_llm_provider(),
@@ -848,7 +822,7 @@ def call_qwen_json(messages: list[dict[str, str]], purpose: str, max_tokens: int
     }
     api_key = get_llm_api_key()
     if not api_key:
-        return None, "", "LLM_API_KEY / DASHSCOPE_API_KEY / OPENAI_API_KEY is not configured", llm_info
+        return None, "", "LLM_API_KEY / OPENAI_API_KEY is not configured", llm_info
 
     url = get_llm_base_url().rstrip("/") + "/chat/completions"
     try:
@@ -887,7 +861,7 @@ def call_qwen_json(messages: list[dict[str, str]], purpose: str, max_tokens: int
 
     raw_content = (content or "").strip()
     try:
-        parsed_content, parsed_raw = parse_qwen_json_content(raw_content)
+        parsed_content, parsed_raw = parse_llm_json_content(raw_content)
         return parsed_content, parsed_raw, None, llm_info
     except json.JSONDecodeError:
         if str(llm_info.get("finish_reason") or "").lower() == "length":
@@ -895,8 +869,8 @@ def call_qwen_json(messages: list[dict[str, str]], purpose: str, max_tokens: int
         return None, raw_content, "LLM " + purpose + " did not return strict JSON", llm_info
 
 
-@timed("call_qwen_text")
-def call_qwen_text(messages: list[dict[str, str]], purpose: str, max_tokens: int = 220) -> tuple[str | None, str, str | None, dict[str, Any]]:
+@timed("call_llm_text")
+def call_llm_text(messages: list[dict[str, str]], purpose: str, max_tokens: int = 220) -> tuple[str | None, str, str | None, dict[str, Any]]:
     llm_info = {
         "llmUsed": False,
         "provider": get_llm_provider(),
@@ -905,7 +879,7 @@ def call_qwen_text(messages: list[dict[str, str]], purpose: str, max_tokens: int
     }
     api_key = get_llm_api_key()
     if not api_key:
-        return None, "", "LLM_API_KEY / DASHSCOPE_API_KEY / OPENAI_API_KEY is not configured", llm_info
+        return None, "", "LLM_API_KEY / OPENAI_API_KEY is not configured", llm_info
 
     url = get_llm_base_url().rstrip("/") + "/chat/completions"
     try:
@@ -940,7 +914,7 @@ def call_qwen_text(messages: list[dict[str, str]], purpose: str, max_tokens: int
     except Exception as exc:
         return None, raw_body, "LLM " + purpose + " response was not valid JSON: " + str(exc), llm_info
 
-    return remove_qwen_think_blocks(str(content or "")).strip(), raw_body, None, llm_info
+    return remove_llm_think_blocks(str(content or "")).strip(), raw_body, None, llm_info
 
 
 @timed("compact_conversation_turns")
@@ -1174,7 +1148,7 @@ def build_voice_turns_to_agent_task_prompt(payload: VoiceTurnsToAgentTaskRequest
 
 @timed("normalize_voice_task_text")
 def normalize_voice_task_text(text: str) -> str:
-    cleaned = remove_qwen_think_blocks(text or "").strip()
+    cleaned = remove_llm_think_blocks(text or "").strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`").strip()
     for prefix in ("任务：", "Agent 任务：", "整理任务：", "输出：", "Task:", "Task：", "Agent task:", "Agent task：", "Please execute:", "Output:"):
@@ -1222,7 +1196,7 @@ def normalize_voice_proposed_fields(raw_items: Any) -> list[dict[str, str]]:
 
 @timed("parse_voice_task_result")
 def parse_voice_task_result(text: str) -> dict[str, Any]:
-    cleaned = remove_qwen_think_blocks(text or "").strip()
+    cleaned = remove_llm_think_blocks(text or "").strip()
     data: dict[str, Any] = {}
     if cleaned:
         try:
@@ -2466,7 +2440,7 @@ def infer_missing_action_target(action_type: str, action: dict[str, Any]) -> dic
 @timed("validate_universal_action")
 def validate_universal_action(action: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(action, dict):
-        return None, "Qwen action 不是 JSON object"
+        return None, "LLM action is not a JSON object"
 
     allowed_types = {
         "select_patient",
@@ -2612,7 +2586,7 @@ def validate_universal_action(action: dict[str, Any]) -> tuple[dict[str, Any] | 
 @timed("validate_universal_plan")
 def validate_universal_plan(plan: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(plan, dict):
-        return None, "Qwen plan 不是 JSON object"
+        return None, "LLM plan is not a JSON object"
 
     patient = plan.get("patient") if isinstance(plan.get("patient"), dict) else {}
     patient_id = (patient.get("patientId") or "").strip().upper()
@@ -2795,8 +2769,8 @@ def build_universal_plan_response(payload: AgentRunRequest) -> JSONResponse:
         if target_url != ALLOWED_TARGET_URL:
             return utf8_json({"ok": False, "mode": "universal-form-agent", "error": "targetUrl 不被允许"}, 400)
 
-        with timed_block("build_universal_plan_response.call_qwen_for_plan"):
-            plan, raw_response, parse_error, llm_info = call_qwen_for_plan(command)
+        with timed_block("build_universal_plan_response.call_llm_for_plan"):
+            plan, raw_response, parse_error, llm_info = call_llm_for_plan(command)
         if not llm_info.get("llmUsed"):
             return utf8_json(
                 {
@@ -2906,7 +2880,7 @@ async def voice_semantic_role_map(payload: VoiceSemanticRoleMapRequest):
             "mapping": {},
             "stats": stats,
         }, 200)
-    data, raw_response, error, llm_info = call_qwen_json(
+    data, raw_response, error, llm_info = call_llm_json(
         build_voice_semantic_role_prompt(payload, turns),
         "voice semantic role mapping",
         max_tokens=120,
@@ -2951,7 +2925,7 @@ async def voice_turns_to_agent_task(payload: VoiceTurnsToAgentTaskRequest):
     turns = compact_voice_task_turns(payload.turns)
     if not turns:
         return utf8_json({"ok": False, "message": "没有可整理的 final 医生/患者对话。"}, 200)
-    task_text, _raw_response, error, llm_info = call_qwen_text(
+    task_text, _raw_response, error, llm_info = call_llm_text(
         build_voice_turns_to_agent_task_prompt(payload, turns),
         "voice turns to agent task",
         max_tokens=650,
@@ -3016,16 +2990,16 @@ async def task_plan_agent(payload: TaskPlannerRequest):
         planner_messages = build_task_planner_prompt(payload)
         planner_max_tokens = task_planner_max_tokens(payload, task_contract)
         trace["plannerMaxTokens"] = planner_max_tokens
-        planned, raw_response, parse_error, llm_info = call_qwen_json(planner_messages, "task planner", max_tokens=planner_max_tokens)
+        planned, raw_response, parse_error, llm_info = call_llm_json(planner_messages, "task planner", max_tokens=planner_max_tokens)
         trace["plannerFinishReason"] = llm_info.get("finish_reason") or ""
         if parse_error and "truncated" in parse_error:
             retry_max_tokens = max(2400, planner_max_tokens + 800)
             trace["plannerRetry"] = {"reason": parse_error, "max_tokens": retry_max_tokens}
-            planned, raw_response, parse_error, llm_info = call_qwen_json(planner_messages, "task planner", max_tokens=retry_max_tokens)
+            planned, raw_response, parse_error, llm_info = call_llm_json(planner_messages, "task planner", max_tokens=retry_max_tokens)
             trace["plannerRetry"]["finish_reason"] = llm_info.get("finish_reason") or ""
         elif parse_error and ("HTTP 5" in parse_error or "timeout" in parse_error.lower()):
             trace["plannerRetry"] = {"reason": parse_error, "max_tokens": planner_max_tokens}
-            planned, raw_response, parse_error, llm_info = call_qwen_json(planner_messages, "task planner retry", max_tokens=planner_max_tokens)
+            planned, raw_response, parse_error, llm_info = call_llm_json(planner_messages, "task planner retry", max_tokens=planner_max_tokens)
             trace["plannerRetry"]["finish_reason"] = llm_info.get("finish_reason") or ""
         trace["plannerRawResponse"] = raw_response[:2000] if raw_response else ""
         trace["plannerParsedResponse"] = planned or {}
@@ -3045,7 +3019,7 @@ async def task_plan_agent(payload: TaskPlannerRequest):
 async def task_next_step_agent(payload: NextStepRequest):
     trace: dict[str, Any] = {"pageState": compact_harness_page_state(payload.page_state), "activeTaskBefore": payload.active_task, "lastActionResult": payload.last_action_result, "errors": []}
     try:
-        data, raw_response, parse_error, llm_info = call_qwen_json(build_next_step_prompt(payload), "next step")
+        data, raw_response, parse_error, llm_info = call_llm_json(build_next_step_prompt(payload), "next step")
         trace["nextStepRawResponse"] = raw_response[:2000] if raw_response else ""
         if parse_error:
             trace["errors"].append(parse_error)
@@ -3063,7 +3037,7 @@ async def task_next_step_agent(payload: NextStepRequest):
 async def task_repair_agent(payload: RepairRequest):
     trace: dict[str, Any] = {"pageState": compact_harness_page_state(payload.page_state), "activeTaskBefore": payload.active_task, "failedAction": payload.failed_action, "actionResult": payload.action_result, "errors": []}
     try:
-        data, raw_response, parse_error, llm_info = call_qwen_json(build_repair_prompt(payload), "repair")
+        data, raw_response, parse_error, llm_info = call_llm_json(build_repair_prompt(payload), "repair")
         trace["repairRawResponse"] = raw_response[:2000] if raw_response else ""
         if parse_error:
             trace["errors"].append(parse_error)

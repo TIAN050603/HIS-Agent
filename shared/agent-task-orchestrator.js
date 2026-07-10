@@ -1233,10 +1233,7 @@
   async function checkLlmConnected(backendUrl) {
     if (!backendUrl) return { connected: false, status: "disconnected", error: "backend_url_missing" };
     try {
-      let response = await fetch(backendUrl + "/api/llm/test", { method: "GET" });
-      if (response.status === 404) {
-        response = await fetch(backendUrl + "/api/qwen/test", { method: "GET" });
-      }
+      const response = await fetch(backendUrl + "/api/llm/test", { method: "GET" });
       const data = await response.json().catch(function () { return {}; });
       if (response.ok && data.ok) return { connected: true, status: "connected", data: data };
       const error = data.error || ("HTTP " + response.status);
