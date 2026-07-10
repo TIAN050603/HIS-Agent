@@ -2,6 +2,7 @@
 import asyncio
 import contextvars
 import functools
+import inspect
 import json
 import os
 import re
@@ -21,6 +22,9 @@ BACKEND_DIR = Path(__file__).resolve().parent
 ALLOWED_TARGET_URL = "https://tian050603.github.io/gui-agent-patient-editor-test/"
 UTF8_JSON = "application/json; charset=utf-8"
 DEFAULT_DIARIZATION_INTERNAL_URL = "http://127.0.0.1:8020"
+DEFAULT_DIARIZATION_HEALTH_TIMEOUT_SECONDS = 45.0
+DEFAULT_DIARIZATION_WS_OPEN_TIMEOUT_SECONDS = 60.0
+DIARIZATION_AUTH_HEADER = "X-HIS-DIART-TOKEN"
 
 DEFAULT_CORS_ALLOWED_ORIGINS = [
     "null",
@@ -185,6 +189,19 @@ def get_diarization_internal_url() -> str:
     return os.getenv("DIARIZATION_INTERNAL_URL", DEFAULT_DIARIZATION_INTERNAL_URL).strip().rstrip("/")
 
 
+def get_positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def get_diarization_proxy_headers() -> dict[str, str]:
+    token = os.getenv("DIARIZATION_PROXY_TOKEN", "").strip()
+    return {DIARIZATION_AUTH_HEADER: token} if token else {}
+
+
 def diarization_ws_url() -> str:
     base = get_diarization_internal_url()
     if base.startswith("https://"):
@@ -197,13 +214,20 @@ def diarization_ws_url() -> str:
 def proxy_diarization_health() -> JSONResponse:
     url = get_diarization_internal_url() + "/diarization/health"
     try:
-        response = requests.get(url, timeout=3)
+        response = requests.get(
+            url,
+            headers=get_diarization_proxy_headers(),
+            timeout=get_positive_float_env(
+                "DIARIZATION_HEALTH_TIMEOUT_SECONDS",
+                DEFAULT_DIARIZATION_HEALTH_TIMEOUT_SECONDS,
+            ),
+        )
         try:
             payload = response.json()
         except Exception:
             payload = {"ok": False, "service": "diarization_service", "provider": "manual", "status": "error", "message": response.text[:300]}
         payload["proxy"] = "backend"
-        payload["proxy_url"] = url
+        payload["upstream_configured"] = True
         return JSONResponse(payload, status_code=response.status_code, media_type=UTF8_JSON)
     except Exception as exc:
         return JSONResponse(
@@ -214,7 +238,7 @@ def proxy_diarization_health() -> JSONResponse:
                 "status": "disconnected",
                 "active_provider": "manual",
                 "proxy": "backend",
-                "proxy_url": url,
+                "upstream_configured": True,
                 "message": f"diarization_service unreachable: {type(exc).__name__}: {exc}",
             },
             status_code=200,
@@ -238,7 +262,23 @@ async def diarization_websocket_proxy(websocket: WebSocket) -> None:
     try:
         import websockets
 
-        async with websockets.connect(diarization_ws_url(), max_size=8 * 1024 * 1024) as upstream:
+        connect_options: dict[str, Any] = {
+            "max_size": 8 * 1024 * 1024,
+            "open_timeout": get_positive_float_env(
+                "DIARIZATION_WS_OPEN_TIMEOUT_SECONDS",
+                DEFAULT_DIARIZATION_WS_OPEN_TIMEOUT_SECONDS,
+            ),
+        }
+        headers = get_diarization_proxy_headers()
+        if headers:
+            parameter_name = (
+                "additional_headers"
+                if "additional_headers" in inspect.signature(websockets.connect).parameters
+                else "extra_headers"
+            )
+            connect_options[parameter_name] = headers
+
+        async with websockets.connect(diarization_ws_url(), **connect_options) as upstream:
             async def browser_to_service() -> None:
                 while True:
                     message = await websocket.receive()

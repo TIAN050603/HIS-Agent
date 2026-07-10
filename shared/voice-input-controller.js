@@ -438,7 +438,7 @@
         if (state.recording) emit({ diarizationWebSocketStatus: "closed" });
       };
       emit({ diarizationWebSocketStatus: "connecting" });
-      await waitForWebSocketOpen(runtime.diarizationWebSocket, 2500);
+      await waitForWebSocketOpen(runtime.diarizationWebSocket, 60000);
       if (!runtime.websocket) return;
       emit({ diarizationWebSocketStatus: "connected" });
     } catch (error) {
@@ -847,7 +847,7 @@
 
   async function checkDiarizationHealth(diarizationHealthUrl) {
     try {
-      const response = await fetchWithTimeout(diarizationHealthUrl, { method: "GET" }, 2500);
+      const response = await fetchWithTimeout(diarizationHealthUrl, { method: "GET" }, 45000);
       const data = await response.json().catch(function () { return {}; });
       const provider = data.active_provider || data.provider || "manual";
       const status = response.ok ? (data.status || (data.ok ? "connected" : "unavailable")) : "unavailable";

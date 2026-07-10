@@ -641,7 +641,7 @@
       "  </section>",
       "  </section>",
       '  <section class="his-agent-view his-agent-status-view" id="hisAgentStatusView" data-agent-view="status" hidden>',
-      '    <div class="his-agent-view-intro">System connection status is shown here. Slow interface checks wait up to 30 seconds and do not block other actions.</div>',
+      '    <div class="his-agent-view-intro">System connection status is shown here. Scale-to-zero services may take longer to start, and checks do not block other actions.</div>',
       '    <div class="his-agent-status-content" id="hisAgentStatusContent"></div>',
       '    <div class="his-agent-actions his-agent-status-actions">',
       '      <button type="button" class="his-agent-button secondary" id="hisAgentRefreshStatusButton">Refresh Status</button>',
@@ -5414,7 +5414,7 @@
     runtime.serviceDetails.diarization = { url: url, status: "checking", error: "" };
     renderCompactServiceStatus();
     try {
-      const response = await fetchWithTimeout(url, { method: "GET" }, 3500);
+      const response = await fetchWithTimeout(url, { method: "GET" }, 45000);
       const data = await response.json().catch(function () { return {}; });
       state.diarizationProvider = data.active_provider || data.provider || "manual";
       state.diarizationStatus = response.ok ? (data.ok ? (state.diarizationProvider === "manual" ? "manual" : "connected") : (data.status || "unavailable")) : "http_" + response.status;
