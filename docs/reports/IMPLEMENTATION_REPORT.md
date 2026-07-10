@@ -2270,4 +2270,5 @@ http://10.26.6.8:31451/html/login.html?v=20260625-task-telemetry-panel
 - Added `deploy/modal/diart_app.py`: a scale-to-zero Modal ASGI WebSocket service using a T4, a named Hugging Face secret, and a persistent model-cache volume.
 - No API key, server password, Modal token, or Hugging Face token is stored in the repository.
 - The Aliyun installer installs the backend runtime dependencies directly instead of treating the flat `backend/main.py` and `backend/agent_worker.py` layout as an editable Python package.
+- The production Nginx site exposes only the static entry point, `html/`, `shared/`, and `favicon.ico`; backend source, `.env`, `.git`, deployment files, tests, and reports are not web-readable.
 - Production verification is recorded separately after the Aliyun services, TLS endpoint, and Modal deployment are live.
