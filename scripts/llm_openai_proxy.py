@@ -35,9 +35,9 @@ def env_first(*names: str, default: str = "") -> str:
     return default
 
 
-API_KEY = env_first("LLM_PROXY_API_KEY", "OPENAI_API_KEY", "DASHSCOPE_API_KEY", "LLM_API_KEY")
-BASE_URL = env_first("LLM_PROXY_BASE_URL", "OPENAI_BASE_URL", "DASHSCOPE_UPSTREAM_BASE_URL", default="https://api.openai.com/v1").rstrip("/")
-MODEL = env_first("LLM_PROXY_MODEL", "OPENAI_MODEL", "DASHSCOPE_UPSTREAM_MODEL", default="gpt-4o")
+API_KEY = env_first("LLM_PROXY_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY")
+BASE_URL = env_first("LLM_PROXY_BASE_URL", "OPENAI_BASE_URL", default="https://api.openai.com/v1").rstrip("/")
+MODEL = env_first("LLM_PROXY_MODEL", "OPENAI_MODEL", default="gpt-5.5")
 
 
 class Handler(BaseHTTPRequestHandler):

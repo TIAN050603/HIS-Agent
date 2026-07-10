@@ -45,6 +45,13 @@ flowchart LR
   Confirm --> HIS["Allowlisted HIS page actions"]
 ```
 
+## Runtime Models
+
+- **Planner and semantic role mapper:** GPT-5.5 through an OpenAI-compatible API.
+- **Speech recognition:** Qwen3 ASR Flash Realtime. Qwen references under
+  `asr_service/` are intentional and do not describe the backend planner.
+- **Speaker diarization:** Diart, deployed separately from the backend planner.
+
 ## Key Features
 
 - Multi-page HIS shell: login, dashboard, patient management, patient editor, and agent history.
@@ -117,9 +124,22 @@ Configure an OpenAI-compatible LLM in `backend/.env`:
 
 ```env
 LLM_PROVIDER=openai
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4o
-OPENAI_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your_key_here
+LLM_BASE_URL=http://127.0.0.1:8001/v1
+LLM_MODEL=gpt-5.5
+
+# Upstream settings used by the local OpenAI-compatible proxy.
+LLM_PROXY_API_KEY=your_upstream_key_here
+LLM_PROXY_BASE_URL=https://your-openai-compatible-endpoint.example/v1
+LLM_PROXY_MODEL=gpt-5.5
+```
+
+The reference deployment sends planner and semantic-role requests through the
+local proxy to a GPT-5.5-compatible API. Start that proxy from the repository
+root before starting the backend:
+
+```bash
+backend/.venv/bin/python scripts/llm_openai_proxy.py
 ```
 
 Start the backend:

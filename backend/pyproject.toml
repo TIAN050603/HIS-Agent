@@ -1,7 +1,7 @@
 [project]
 name = "gui-agent-universal-backend"
 version = "0.2.0"
-description = "Local FastAPI backend for Qwen-powered Universal Observe-Act Agent on the patient editor test page."
+description = "FastAPI backend for the GPT-5.5-powered HIS-Agent planner and semantic role mapper."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi",

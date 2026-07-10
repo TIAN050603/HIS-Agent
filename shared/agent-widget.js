@@ -65,7 +65,7 @@
     diarizationWebSocketStatus: "idle",
     llmStatus: "disconnected",
     agentMode: "blocked_no_llm",
-    qwenStatus: "Not checked",
+    llmProviderStatus: "Not checked",
     dataSource: "Browser Workspace",
     loginMode: "Signed In",
     topicPage: 0,
@@ -266,7 +266,7 @@
       diarizationWebSocketStatus: state.diarizationWebSocketStatus,
       llmStatus: state.llmStatus,
       agentMode: state.agentMode,
-      qwenStatus: state.qwenStatus,
+      llmProviderStatus: state.llmProviderStatus,
       dataSource: state.dataSource,
       loginMode: state.loginMode,
       voiceSessionEnded: Boolean(state.voiceSessionEnded),
@@ -1112,7 +1112,7 @@
     state.backendStatus = "checking";
     state.asrStatus = "checking";
     state.llmStatus = "checking";
-    state.qwenStatus = "checking";
+    state.llmProviderStatus = "checking";
     state.agentMode = "checking";
     state.diarizationStatus = "checking";
     runtime.serviceDetails.backend = {
@@ -4479,14 +4479,11 @@
     return refreshLlmStatusViaRuntime(timeoutMs, options);
     const backendUrl = (state.backendUrl || DEFAULT_STATE.backendUrl).replace(/\/+$/, "");
     try {
-      let response = await fetchWithTimeout(backendUrl + "/api/llm/test", { method: "GET" }, 5000);
-      if (response.status === 404) {
-        response = await fetchWithTimeout(backendUrl + "/api/qwen/test", { method: "GET" }, 5000);
-      }
+      const response = await fetchWithTimeout(backendUrl + "/api/llm/test", { method: "GET" }, 5000);
       const data = await response.json().catch(function () { return {}; });
       if (response.ok && data.ok) {
         state.backendStatus = "Available";
-        state.qwenStatus = "Connected";
+        state.llmProviderStatus = "Connected";
         state.llmStatus = "connected";
         state.agentMode = "llm_enabled";
         state.lastError = "";
@@ -4499,13 +4496,13 @@
         return { connected: true, status: "connected", data: data };
       }
       state.backendStatus = response.status === 0 ? "Unavailable" : "Error " + response.status;
-      state.qwenStatus = response.status === 400 ? "Not configured" : "Disconnected";
+      state.llmProviderStatus = response.status === 400 ? "Not configured" : "Disconnected";
       state.llmStatus = response.status === 400 ? "not_configured" : "unavailable";
       state.agentMode = "blocked_no_llm";
       state.lastError = data.error || ("HTTP " + response.status);
     } catch (error) {
       state.backendStatus = "Unavailable";
-      state.qwenStatus = "Disconnected";
+      state.llmProviderStatus = "Disconnected";
       state.llmStatus = "disconnected";
       state.agentMode = "blocked_no_llm";
       state.lastError = error.message || "";
@@ -4523,16 +4520,11 @@
     runtime.serviceDetails.llm = { url: endpoint, status: "checking", error: "" };
     renderCompactServiceStatus();
     try {
-      let response = await fetchWithTimeout(endpoint, { method: "GET" }, timeout);
-      if (response.status === 404) {
-        endpoint = backendUrl + "/api/qwen/test";
-        runtime.serviceDetails.llm = { url: endpoint, status: "checking", error: "" };
-        response = await fetchWithTimeout(endpoint, { method: "GET" }, timeout);
-      }
+      const response = await fetchWithTimeout(endpoint, { method: "GET" }, timeout);
       const data = await response.json().catch(function () { return {}; });
       state.backendStatus = "connected";
       if (response.ok && data.ok) {
-        state.qwenStatus = "connected";
+        state.llmProviderStatus = "connected";
         state.llmStatus = "connected";
         state.agentMode = "llm_enabled";
         state.lastError = "";
@@ -4545,7 +4537,7 @@
         saveState();
         return { connected: true, status: "connected", data: data, url: endpoint };
       }
-      state.qwenStatus = response.status === 400 ? "not_configured" : "disconnected";
+      state.llmProviderStatus = response.status === 400 ? "not_configured" : "disconnected";
       state.llmStatus = response.status === 400 ? "not_configured" : "unavailable";
       state.agentMode = "blocked_no_llm";
       state.lastError = data.error || ("HTTP " + response.status);
@@ -4556,7 +4548,7 @@
         state.backendStatus = aborted ? state.backendStatus : "disconnected";
       }
       if (aborted && quick) {
-        state.qwenStatus = "slow";
+        state.llmProviderStatus = "slow";
         state.llmStatus = "slow";
         state.agentMode = "llm_check_required";
         state.lastError = "LLM quick check exceeded " + timeout + "ms";
@@ -4569,7 +4561,7 @@
         saveState();
         return { connected: false, status: "slow", slow: true, error: state.lastError, url: endpoint };
       }
-      state.qwenStatus = aborted ? "timeout" : "disconnected";
+      state.llmProviderStatus = aborted ? "timeout" : "disconnected";
       state.llmStatus = aborted ? "timeout" : "disconnected";
       state.agentMode = "blocked_no_llm";
       state.lastError = aborted ? "LLM test timeout after " + timeout + "ms" : (error && error.message ? error.message : "");
@@ -4591,7 +4583,7 @@
       llmStatus: state.llmStatus,
       agentMode: state.agentMode,
       asr: state.asrStatus,
-      qwen: state.qwenStatus,
+      llm: state.llmProviderStatus,
       diarization: state.diarizationProvider || "manual",
       diarizationStatus: state.diarizationStatus || "unknown",
       dataSource: state.dataSource,
@@ -5397,7 +5389,7 @@
     const endpoint = backendBase ? backendBase + "/api/llm/test" : "";
     if (!state.llmStatus || state.llmStatus === "checking" || state.llmStatus === "timeout") {
       state.llmStatus = "not_checked";
-      state.qwenStatus = "not_checked";
+      state.llmProviderStatus = "not_checked";
       state.agentMode = "llm_check_required";
     }
     runtime.serviceDetails.llm = {
@@ -5548,7 +5540,7 @@
       asrStatus: state.asrStatus || "unknown",
       microphoneStatus: state.microphoneStatus || "unknown",
       llmUrl: RUNTIME_URLS.llmUrl,
-      qwenStatus: state.qwenStatus || "unknown",
+      llmProviderStatus: state.llmProviderStatus || "unknown",
       lastInitError: null,
       scriptsVersion: "20260624-voice-confirm-execute",
       conversationState: state.conversationState || "home",

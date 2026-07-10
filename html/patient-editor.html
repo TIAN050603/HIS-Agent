@@ -531,7 +531,7 @@
       async function refreshLlmStatus() {
         try {
           const backendBase = (nodes.debugBackendUrl.value || runtimeUrls.backendUrl).replace(/\/+$/, "");
-          const response = await fetch(backendBase + "/api/qwen/test");
+          const response = await fetch(backendBase + "/api/llm/test");
           const data = await response.json().catch(function () { return {}; });
           llmStatus = response.ok && data.ok ? "connected" : "unavailable";
         } catch (error) {
