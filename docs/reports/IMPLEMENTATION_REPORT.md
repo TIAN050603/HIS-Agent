@@ -2271,4 +2271,19 @@ http://10.26.6.8:31451/html/login.html?v=20260625-task-telemetry-panel
 - No API key, server password, Modal token, or Hugging Face token is stored in the repository.
 - The Aliyun installer installs the backend runtime dependencies directly instead of treating the flat `backend/main.py` and `backend/agent_worker.py` layout as an editable Python package.
 - The production Nginx site exposes only the static entry point, `html/`, `shared/`, and `favicon.ico`; backend source, `.env`, `.git`, deployment files, tests, and reports are not web-readable.
-- Production verification is recorded separately after the Aliyun services, TLS endpoint, and Modal deployment are live.
+
+### Production verification
+
+- Temporary HTTPS entry point: `https://8-210-44-40.sslip.io/html/login.html`. The final reviewed domain is still pending and must replace the temporary `sslip.io` hostname in Nginx and Certbot.
+- Host: Aliyun Ubuntu 24.04, 2 vCPU, 2 GiB advertised RAM, and a 40 GiB disk. The operating system reports 1,613 MiB RAM, 1,072 MiB available after startup, 2,047 MiB swap with 0 MiB used, and 33 GiB free disk space.
+- `his-agent-llm-proxy`, `his-agent-backend`, `his-agent-asr`, Nginx, and `certbot.timer` are all enabled and active after a coordinated restart.
+- GPT planner health reports provider `openai`, model `gpt-5.5`, and content `ok`. The ASR bridge reports `qwen3-asr-flash-realtime` over the external realtime API.
+- Internal ports `8000`, `8001`, and `8010` listen only on `127.0.0.1` and are not reachable from the public Internet. UFW allows only `22`, `80`, and `443` inbound.
+- The temporary Let's Encrypt certificate is valid through `2026-10-08 10:42:44 UTC`; automated renewal is enabled.
+- Modal Diart uses a T4, CUDA, a persistent model-cache volume, `min_containers=0`, and a 600-second scale-down window. Modal Proxy Auth rejects unauthenticated requests before autoscaling, while a separate app-level token protects the ASGI service inside the container.
+- Direct unauthenticated Modal health requests return `401`. Authenticated requests through the Aliyun backend return `200` with `provider=diart_local`, `device=cuda`, and `num_speakers=2`.
+- A forced cold HTTP request completed in 18.3 seconds. After explicitly terminating the active T4 container, the public Aliyun WebSocket path completed `session_started -> pong -> session_finished` in 24.5 seconds; backend and frontend Diart cold-start windows are 45 and 60 seconds.
+- Public ASR WebSocket transport completed `pong -> final`. A 5.24-second synthetic, non-patient English utterance produced partial transcripts and the final text `Open patient management and find patient P zero zero one.` in 5.6 seconds.
+- Browser acceptance passed login, the 20-patient dashboard, all service status checks, and a live GPT-planned non-mutating task. `Open Patient Management.` completed `1/1` in 8.9 seconds and navigated through the real HTML UI.
+- Live microphone permission and acoustic quality from a physical clinician microphone were not tested in this deployment session. The ASR API, audio upload, transcription, Diart health, and Diart WebSocket paths were tested independently.
+- Root/password SSH remains enabled to preserve owner access. Production hardening should add an SSH key and only then disable password/root login.
