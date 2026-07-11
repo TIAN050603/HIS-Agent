@@ -709,7 +709,7 @@ def get_llm_request_timeout() -> float:
         value = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "75"))
     except ValueError:
         value = 75.0
-    return max(10.0, min(value, 120.0))
+    return max(10.0, min(value, 180.0))
 
 
 @app.get("/api/health", response_model=None)
@@ -882,6 +882,9 @@ def call_llm_json(
         request_payload = build_chat_completion_payload(messages, max_tokens)
         if strict_json:
             request_payload["response_format"] = {"type": "json_object"}
+            request_payload["reasoning_effort"] = (
+                os.getenv("LLM_JSON_REASONING_EFFORT", "minimal").strip() or "minimal"
+            )
         response = requests.post(
             url,
             headers={
@@ -3022,7 +3025,7 @@ async def voice_semantic_role_map(payload: VoiceSemanticRoleMapRequest):
         call_llm_json,
         build_voice_semantic_role_prompt(payload, turns),
         "final authoritative voice semantic role mapping" if payload.final else "voice semantic role mapping",
-        360 if payload.final else 160,
+        220 if payload.final else 160,
         True,
     )
     if error:
