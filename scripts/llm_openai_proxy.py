@@ -40,6 +40,17 @@ BASE_URL = env_first("LLM_PROXY_BASE_URL", "OPENAI_BASE_URL", default="https://a
 MODEL = env_first("LLM_PROXY_MODEL", "OPENAI_MODEL", default="gpt-5.5")
 
 
+def env_positive_float(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+REQUEST_TIMEOUT_SECONDS = env_positive_float("LLM_PROXY_TIMEOUT_SECONDS", 180.0)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "UniversalAgentLLMProxy/1.0"
 
@@ -68,7 +79,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         if path == "/health":
-            self.send_json(200, {"ok": bool(API_KEY), "base_url": BASE_URL, "model": MODEL})
+            self.send_json(200, {
+                "ok": bool(API_KEY),
+                "base_url": BASE_URL,
+                "model": MODEL,
+                "timeout_seconds": REQUEST_TIMEOUT_SECONDS,
+            })
             return
         if path == "/v1/models":
             self.forward("GET", "/models")
@@ -100,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                 BASE_URL + upstream_path,
                 headers={"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"},
                 json=json_payload,
-                timeout=60,
+                timeout=REQUEST_TIMEOUT_SECONDS,
             )
             body = response.content
             self.send_response(response.status_code)
